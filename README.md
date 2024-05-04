@@ -30,11 +30,11 @@ star_index_car.sh
 star_index_pro.sh
 ```
 
-scaffold names need to be the same in genome and transcriptome.
-
-want to use chimeric reads since contigs may not be whole chromosomes
+## Mapping
 
 want to do 2-pass mapping, map all species samples first then use that junction output file as a junction annotation file to re-map all the samples.
-
-
-
+```
+star_pro.sh
+star_car.sh
+star_mel.sh
+```
