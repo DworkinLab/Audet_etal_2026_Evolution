@@ -16,6 +16,20 @@ Next I need to find samples labelled the wrong species that I identified when bl
 
 Next step is mapping with STAR:
 
+## Indexing
+
+carrolli annotation and genome do not match contig names, so I have to remove all of the extra information in the fasta headers except for the contig.
+
+```
+sed 's/^.*KB866 />/g' GCA_018152295.1_ASM1815229v1_genomic.fna > renameStep1_GCA_018152295.1_ASM1815229v1_genomic.fna
+sed 's/,.*$//g' renameStep1_GCA_018152295.1_ASM1815229v1_genomic.fna > renamed_carrolli_genome.fa
+star_index_car.sh
+```
+
+```
+star_index_pro.sh
+```
+
 scaffold names need to be the same in genome and transcriptome.
 
 want to use chimeric reads since contigs may not be whole chromosomes
