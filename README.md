@@ -20,7 +20,8 @@ First, I notice the gff files of the annotation are in a non-standard format tha
 
 *not working right now* gff is formatted incorrectly
 
-
+trying to make gff work:
+awk '{print $9}' prolongataSaPa_WGS-DeDup.gff > gff.info
 
 ```
 agat_gff2gtf_pro.sh
