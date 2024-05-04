@@ -16,6 +16,14 @@ Next I need to find samples labelled the wrong species that I identified when bl
 
 Next step is mapping with STAR:
 
+First, I notice the gff files of the annotation are in a non-standard format that doesn't cooperate with STAR, so I use AGAT to convert gff to gtf
+
+```
+agat_gff2gtf_pro.sh
+agat_gff2gtf_car.sh
+```
+
+
 ## Indexing
 
 carrolli annotation and genome do not match contig names, so I have to remove all of the extra information in the fasta headers except for the contig.
