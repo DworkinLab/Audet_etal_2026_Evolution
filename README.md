@@ -16,7 +16,11 @@ Next I need to find samples labelled the wrong species that I identified when bl
 
 Next step is mapping with STAR:
 
-First, I notice the gff files of the annotation are in a non-standard format that doesn't cooperate with STAR, so I use AGAT to convert gff to gtf
+First, I notice the gff files of the annotation are in a non-standard format that doesn't cooperate with STAR, so I use AGAT to convert gff to gtf. 
+
+*not working right now* gff is formatted incorrectly
+
+
 
 ```
 agat_gff2gtf_pro.sh
