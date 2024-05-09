@@ -51,3 +51,26 @@ star_pro.sh
 star_car.sh
 star_mel.sh
 ```
+## Reciprocal blast
+Mapping is done to predicted genes, so I need to reciprocally blast these.
+
+```
+extract_prot_pro.sh
+extract_prot_car.sh
+```
+OrthoFinder was ran following the tutorial guidelines found at: https://davidemms.github.io/menu/tutorials.html
+
+Protein sequences obtained from 'readgff' for Dmel, Dcar, and Dpro are all placed in a folder called proteomes, alog with downloaded translated prroteomes from D. rhopaloa and D. elegans obtained from NCBI RefSeq (GCF_018152115.1, GCF_018152505.1)
+
+```
+# extract the longest transcript from each gene to avoid falsely calling orthologues
+for f in *fa ; do python /home/audett/OrthoFinder/tools/primary_transcript.py $f ; done
+
+# run on the
+/home/audett/OrthoFinder/orthofinder -f primary_transcripts/
+
+# ran as a batch job
+orthoFinder.sh
+```
+
+
