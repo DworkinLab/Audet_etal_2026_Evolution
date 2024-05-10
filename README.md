@@ -57,6 +57,8 @@ Mapping is done to predicted genes, so I need to reciprocally blast these.
 ```
 extract_prot_pro.sh
 extract_prot_car.sh
+
+# stop codons are denoted '.' in the output which is not accepted by NCBI downsatream, so I use sed 's/\./\*/g' to convert to '*' which is accepted
 ```
 OrthoFinder was ran following the tutorial guidelines found at: https://davidemms.github.io/menu/tutorials.html
 
