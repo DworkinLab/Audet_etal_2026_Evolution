@@ -51,7 +51,7 @@ star_pro.sh
 star_car.sh
 star_mel.sh
 ```
-## Reciprocal blast
+## OrthoFinder
 Mapping is done to predicted genes, so I need to reciprocally blast these.
 
 ```
@@ -74,5 +74,18 @@ for f in *fa ; do python /home/audett/OrthoFinder/tools/primary_transcript.py $f
 # ran as a batch job
 orthoFinder.sh
 ```
+
+## Reciprocal best hit blast
+```
+
+
+
+
+```
+
+
+
+
+
 
 
