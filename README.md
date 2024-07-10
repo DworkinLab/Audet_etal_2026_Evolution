@@ -76,10 +76,16 @@ orthoFinder.sh
 ```
 
 ## Reciprocal best hit blast
+
+Using makeblastdb I created a nucleotide database for melanogaster, prolongata, and carrolli from the transcripts that I converted from gtf to fasta file with the readgff package. I then used blastn to blast prolongata/carrolli against melanogast and then melanogaster against prolongata/carrolli
+
 ```
+makedb.sh
 
-
-
+pro2mel.sh
+mel2pro.sh
+car2mel.sh
+mel2car.sh
 
 ```
 
