@@ -80,6 +80,8 @@ orthoFinder.sh
 Using makeblastdb I created a nucleotide database for melanogaster, prolongata, and carrolli from the transcripts that I converted from gtf to fasta file with the readgff package. I then used blastn to blast prolongata/carrolli against melanogast and then melanogaster against prolongata/carrolli
 
 ```
+extract_nuc_pro.sh
+
 makedb.sh
 
 pro2mel.sh
