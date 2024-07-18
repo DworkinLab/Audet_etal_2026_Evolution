@@ -90,7 +90,17 @@ car2mel.sh
 mel2car.sh
 
 ```
+I then run an R script that find the orthologs that are a best hit in both direction, and create an index.
 
+```
+ortho_reciprocator.R
+```
+
+And finally, I run an R script that replaces mRNA#### from the pro/car counts files with the identified reciprocal best hits from the index file
+```
+orthoswapper.sh
+orthoswapper.r
+```
 
 
 
