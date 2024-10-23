@@ -1,17 +1,6 @@
-#!/bin/bash
-#SBATCH -t 4:00:00
-#SBATCH -A def-idworkin
-#SBATCH --array=0-225
-#SBATCH --cpus-per-task=1
-#SBATCH --mem=10G
-#SBATCH --mail-user=audett@mcmaster.ca
-#SBATCH --mail-type=BEGIN
-#SBATCH --mail-type=END
-#SBATCH --mail-type=FAIL
-
-run1=/home/audett/scratch/prolongata/run1
-run2=/home/audett/scratch/prolongata/run2
-out=/home/audett/scratch/prolongata/merged_trimmed
+run1=run1
+run2=run2
+out=merged_trimmed
 
 declare -a forward=( ${run1}/*.fastq.gz )
 
