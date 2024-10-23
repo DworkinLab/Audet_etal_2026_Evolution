@@ -1,15 +1,29 @@
 # prolongata_RNA-seq
 
+Beginning with the RNAseq data in a folder called 'RNA', and the reference genomes for carrolli, prolongata, and melanogaster in a folder called 'genome' and sub-directories named after each species.
+
 ## Trimming
 I have 226 R1 and 226 R2 files
 
 first I run fastqc pre-trim - things look fine, adapters found
 
-next I trim with 'bbduk.sh'
+next I trim with 
 
-second pass of fastqc also looks good. Next I split all reads from the first run in to their own directory called run1 and the second run in to a directory called run 2, while removing the beginnig of the name added by Genome Quebec. I then merge these in to a single file using 'merge.sh'.
+'bbduk.sh'
 
-Next I need to find samples labelled the wrong species that I identified when blasting the samples to look for possible issues. To do this I will blast every sample to the three species genomes.
+
+*************
+
+
+
+second pass of fastqc also looks good. 
+
+Next I split all reads from the first run in to their own directory called run1 and the second run in to a directory called run 2, while removing the beginning of the name added by Genome Quebec. I then merge these in to a single file using:
+
+'merge.sh'
+
+Next I need to find samples labelled the wrong species that I identified when blasting random sequences from the samples to look for possible issues. To do this I will blast every sample to the three species genomes.
+
 'make_blast_db.sh'
 'make_fasta_subsets.sh'
 'blastin.sh'
