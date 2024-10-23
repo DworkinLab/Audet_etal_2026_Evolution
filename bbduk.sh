@@ -1,4 +1,4 @@
-module load bbmap/38.86
+module load bbmap/39.06
 
 in=RNA
 out=trimmed
