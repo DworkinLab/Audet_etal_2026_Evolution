@@ -11,16 +11,13 @@ next I trim with
 
 'bbduk.sh'
 
-
-*************
-
-
-
 second pass of fastqc also looks good. 
 
 Next I split all reads from the first run in to their own directory called run1 and the second run in to a directory called run 2, while removing the beginning of the name added by Genome Quebec. I then merge these in to a single file using:
 
 'merge.sh'
+
+*************
 
 Next I need to find samples labelled the wrong species that I identified when blasting random sequences from the samples to look for possible issues. To do this I will blast every sample to the three species genomes.
 
