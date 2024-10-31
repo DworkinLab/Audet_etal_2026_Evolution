@@ -1,5 +1,7 @@
 makeblastdb -in \
-"/home/audett/projects/def-idworkin/audett/prolongata/genome/pro/prolongataSaPa_WGS-DeDup.fa\
- /home/audett/projects/def-idworkin/audett/prolongata/genome/car/renamed_carrolli_genome.fa\
- /home/audett/projects/def-idworkin/audett/prolongata/genome/mel/dmel-all-chromosome-r6.23.fasta"\
- -title all_genomes -dbtype nucl -out all_genomes.fa
+"/prolongata/GCA_036346975.1_ASM3634697v1_genomic.fna\
+ /carrolli/GCA_018152295.1_ASM1815229v1_genomic.fna\
+ /melanogaster/dmel-all-chromosome-r6.59.fasta"\
+ -title all_fly_genomes -dbtype nucl -out all_genomes_db.fa
+
+
