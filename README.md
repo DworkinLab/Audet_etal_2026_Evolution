@@ -25,7 +25,15 @@ Next I need to find samples labelled the wrong species that I identified when bl
 
 'blastin.sh'
 
+I can go through the outsputted 'counts' file to identify samples that are blasting to the wrong species.
 
+mel_M_mid_early_3 blasts to carrolli and prolongata equally and much better than melanogaster. I am going to leave this sample aside for the time being.
+car_M_mid_early_6 blasts best to melanogaster so I will also leave this sample aside for now
+A first run of the analysis identified pro_M_mid_late_2 and car_M_mid_late_2 as being outliers in PCR and appear to have strange extreme gene expression that doesn't match any other sample suggesting possible contamination, so I set these aside as well.
+
+scaffold names don't match between the genomes and annotations for prolongata and carrolli, so I need to fix that.
+`sed 's/.*Scaffold/\>Scaffold/g' GCA_036346975.1_ASM3634697v1_genomic.fna | sed 's/\,\ whole\ genome\ shotgun\ sequence//g' > prolongata_genome.fa`
+`sed 's/.*contig/\>contig/g' GCA_018152295.1_ASM1815229v1_genomic.fna | sed 's/\,\ whole\ genome\ shotgun\ sequence//g' > carrolli_genome.fa`
 
 *************
 
