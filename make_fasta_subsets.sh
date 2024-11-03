@@ -1,6 +1,6 @@
 module load StdEnv/2020
 module load seqtk/1.3
 
-seqtk sample -s100 ${in}/${base}.fastq.gz 5000 > ${out}/${base}.fq
+less merged_trimmed/${base}.fastq.gz | head -n 10000 > fasta_subsets/${base}.fq
 
-seqtk seq -a ${out}/${base}.fq > ${out}/${base}.fa
+seqtk seq -a fasta_subsets/${base}.fq > fasta_subsets/${base}.fa
