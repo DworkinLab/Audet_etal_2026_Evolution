@@ -17,13 +17,13 @@ Next I split all reads from the first run in to their own directory called run1 
 
 'merge.sh'
 
-*************
-
 Next I need to find samples labelled the wrong species that I identified when blasting random sequences from the samples to look for possible issues. To do this I will blast every sample to the three species genomes.
 
 'make_blast_db.sh'
-'make_fasta_subsets.sh'
+'make_fasta_subset.sh'
 'blastin.sh'
+
+*************
 
 Next step is mapping with STAR:
 
