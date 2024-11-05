@@ -25,7 +25,7 @@ Next I need to find samples labelled the wrong species that I identified when bl
 
 'blastin.sh'
 
-I can go through the outsputted 'counts' file to identify samples that are blasting to the wrong species.
+I can go through the outputted 'counts' file to identify samples that are blasting to the wrong species.
 
 mel_M_mid_early_3 blasts to carrolli and prolongata equally and much better than melanogaster. I am going to leave this sample aside for the time being.
 car_M_mid_early_6 blasts best to melanogaster so I will also leave this sample aside for now
@@ -35,17 +35,15 @@ scaffold names don't match between the genomes and annotations for prolongata an
 `sed 's/.*Scaffold/\>Scaffold/g' GCA_036346975.1_ASM3634697v1_genomic.fna | sed 's/\,\ whole\ genome\ shotgun\ sequence//g' > prolongata_genome.fa`
 `sed 's/.*contig/\>contig/g' GCA_018152295.1_ASM1815229v1_genomic.fna | sed 's/\,\ whole\ genome\ shotgun\ sequence//g' > carrolli_genome.fa`
 
-*************
-
 Next step is mapping with STAR:
 
 ## Indexing
 
-carrolli annotation and genome do not match contig names, so I have to remove all of the extra information in the fasta headers except for the contig.
-
 `star_index_pro.sh`
 `star_index_car.sh`
 `star_index_mel.sh`
+
+*************
 
 ## Mapping
 
@@ -55,29 +53,7 @@ star_pro.sh
 star_car.sh
 star_mel.sh
 ```
-## OrthoFinder
-Mapping is done to predicted genes, so I need to reciprocally blast these.
 
-```
-extract_prot_pro.sh
-extract_prot_car.sh
-
-# stop codons are denoted '.' in the output which is not accepted by NCBI downsatream, so I use sed 's/\./\*/g' to convert to '*' which is accepted
-```
-OrthoFinder was ran following the tutorial guidelines found at: https://davidemms.github.io/menu/tutorials.html
-
-Protein sequences obtained from 'gffread' for Dmel, Dcar, and Dpro are all placed in a folder called proteomes, alog with downloaded translated prroteomes from D. rhopaloa and D. elegans obtained from NCBI RefSeq (GCF_018152115.1, GCF_018152505.1)
-
-```
-# extract the longest transcript from each gene to avoid falsely calling orthologues
-for f in *fa ; do python /home/audett/OrthoFinder/tools/primary_transcript.py $f ; done
-
-# run on the
-/home/audett/OrthoFinder/orthofinder -f primary_transcripts/
-
-# ran as a batch job
-orthoFinder.sh
-```
 
 ## Reciprocal best hit blast
 
@@ -109,5 +85,32 @@ orthoswapper.r
 
 
 
+***********
+
+code that is not used in the current analysis
+
+## OrthoFinder
+Mapping is done to predicted genes, so I need to reciprocally blast these.
+
+```
+extract_prot_pro.sh
+extract_prot_car.sh
+
+# stop codons are denoted '.' in the output which is not accepted by NCBI downsatream, so I use sed 's/\./\*/g' to convert to '*' which is accepted
+```
+OrthoFinder was ran following the tutorial guidelines found at: https://davidemms.github.io/menu/tutorials.html
+
+Protein sequences obtained from 'gffread' for Dmel, Dcar, and Dpro are all placed in a folder called proteomes, alog with downloaded translated prroteomes from D. rhopaloa and D. elegans obtained from NCBI RefSeq (GCF_018152115.1, GCF_018152505.1)
+
+```
+# extract the longest transcript from each gene to avoid falsely calling orthologues
+for f in *fa ; do python /home/audett/OrthoFinder/tools/primary_transcript.py $f ; done
+
+# run on the
+/home/audett/OrthoFinder/orthofinder -f primary_transcripts/
+
+# ran as a batch job
+orthoFinder.sh
+```
 
 
