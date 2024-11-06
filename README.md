@@ -43,6 +43,14 @@ Next step is mapping with STAR:
 `star_index_car.sh`
 `star_index_mel.sh`
 
+I need a way to convert from the mRNA or gene numbers in the prolongata/carrolli annotations, to the geneIDs that are homologous with melanogaster, so I extract the information I need from the annotation for converting between all of these relevant things.
+
+For prolongata
+`grep -P '\tmRNA\t' prolongataSaPa_WGS-DeDup.gff | awk -F'\t' '{print $3,$9}' | awk -F';' '{print$1,$2,$3,$4,$5}' | awk '{print $2,$3,$4,$6}' | sed 's/ID\=//g' | sed 's/Parent\=//g' | sed 's/gene\=//g' | sed 's/Name\=//g' | sed 's/orig_protein.*//g' | sed 's/-mRNA\-1.*//g' | sed 's/transcript.* //g' > prolongata_gene_index.txt`
+
+For carrolli
+`grep -P '\tmRNA\t' carrolli_GCA_018152295.1.gff | awk -F'\t' '{print $3,$9}' | awk -F';' '{print$1,$2,$10,$12}' | sed 's/ID\=//g' | sed 's/Parent\=//g' | sed 's/gene\=//g' | sed 's/Name\=//g' | sed 's/start_range.* //g' | sed 's/locus\_.* / /g' > carrolli_gene_index.txt`
+
 *************
 
 ## Mapping
