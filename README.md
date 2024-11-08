@@ -51,6 +51,15 @@ For prolongata
 For carrolli
 `grep -P '\tmRNA\t' carrolli_GCA_018152295.1.gff | awk -F'\t' '{print $3,$9}' | awk -F';' '{print$1,$2,$10,$12}' | sed 's/ID\=//g' | sed 's/Parent\=//g' | sed 's/gene\=//g' | sed 's/Name\=//g' | sed 's/start_range.* //g' | sed 's/locus\_.* / /g' > carrolli_gene_index.txt`
 
+The annotation has strange "exception=unclassified discrepancy" lines that mess up the r script to swap mRNA name with gene names, so I run:
+`grep -v 'exception=unclassified' prolongata_gene_index.txt > prolongata_gene_index_noDiscrepancy.txt`
+`grep -v 'exception=unclassified' carrolli_gene_index.txt > carrolli_gene_index_noDiscrepancy.txt`
+
+From there I run:
+`orthoswapper_pro.r` via `orthoswapper_pro.sh`
+`orthoswapper_car.r` via `orthoswapper_car.sh`
+`orthoswapper_mel.r` via `orthoswapper_mel.sh`
+
 *************
 
 ## Mapping
@@ -64,6 +73,7 @@ star_mel.sh
 
 
 ## Reciprocal best hit blast
+
 
 Using makeblastdb I created a nucleotide database for melanogaster, prolongata, and carrolli from the transcripts that I converted from gtf to fasta file with the readgff package. I then used blastn to blast prolongata/carrolli against melanogast and then melanogaster against prolongata/carrolli
 
