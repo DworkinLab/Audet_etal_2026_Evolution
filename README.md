@@ -52,8 +52,8 @@ For carrolli
 `grep -P '\tmRNA\t' carrolli_GCA_018152295.1.gff | awk -F'\t' '{print $3,$9}' | awk -F';' '{print$1,$2,$10,$12}' | sed 's/ID\=//g' | sed 's/Parent\=//g' | sed 's/gene\=//g' | sed 's/Name\=//g' | sed 's/start_range.* //g' | sed 's/locus\_.* / /g' > carrolli_gene_index.txt`
 
 The annotation has strange "exception=unclassified discrepancy" lines that mess up the r script to swap mRNA name with gene names, so I run:
-`grep -v 'exception=unclassified' prolongata_gene_index.txt > prolongata_gene_index_noDiscrepancy.txt`
-`grep -v 'exception=unclassified' carrolli_gene_index.txt > carrolli_gene_index_noDiscrepancy.txt`
+`grep -v '=' prolongata_gene_index.txt > prolongata_gene_index_noDiscrepancy.txt`
+`grep -v '=' carrolli_gene_index.txt > carrolli_gene_index_noDiscrepancy.txt`
 
 From there I run:
 `orthoswapper_pro.r` via `orthoswapper_pro.sh`
