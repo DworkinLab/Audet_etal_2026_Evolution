@@ -43,33 +43,21 @@ Next step is mapping with STAR:
 `star_index_car.sh`
 `star_index_mel.sh`
 
-I need a way to convert from the mRNA or gene numbers in the prolongata/carrolli annotations, to the geneIDs that are homologous with melanogaster, so I extract the information I need from the annotation for converting between all of these relevant things.
+## Mapping and counting
 
-For prolongata
-`grep -P '\tmRNA\t' prolongataSaPa_WGS-DeDup.gff | awk -F'\t' '{print $3,$9}' | awk -F';' '{print$1,$2,$3,$4,$5}' | awk '{print $2,$3,$4,$6}' | sed 's/ID\=//g' | sed 's/Parent\=//g' | sed 's/gene\=//g' | sed 's/Name\=//g' | sed 's/orig_protein.*//g' | sed 's/-mRNA\-1.*//g' | sed 's/transcript.* //g' > prolongata_gene_index.txt`
-
-For carrolli
-`grep -P '\tmRNA\t' carrolli_GCA_018152295.1.gff | awk -F'\t' '{print $3,$9}' | awk -F';' '{print$1,$2,$10,$12}' | sed 's/ID\=//g' | sed 's/Parent\=//g' | sed 's/gene\=//g' | sed 's/Name\=//g' | sed 's/start_range.* //g' | sed 's/locus\_.* / /g' > carrolli_gene_index.txt`
-
-The annotation has strange "exception=unclassified discrepancy" lines that mess up the r script to swap mRNA name with gene names, so I run:
-`grep -v '=' prolongata_gene_index.txt > prolongata_gene_index_noDiscrepancy.txt`
-`grep -v '=' carrolli_gene_index.txt > carrolli_gene_index_noDiscrepancy.txt`
-
-From there I run:
-`orthoswapper_pro.r` via `orthoswapper_pro.sh`
-`orthoswapper_car.r` via `orthoswapper_car.sh`
-`orthoswapper_mel.r` via `orthoswapper_mel.sh`
-
-*************
-
-## Mapping
-
-want to do 2-pass mapping, map all species samples first then use that junction output file as a junction annotation file to re-map all the samples.
 ```
 star_pro.sh
 star_car.sh
 star_mel.sh
 ```
+
+I need a way to convert from the mRNA or gene numbers in the prolongata/carrolli annotations, to the geneIDs that are homologous with melanogaster, so I extract the information I need from the annotation for converting between all of these relevant things.
+
+I run:
+`orthoswapper_pro.r` via `orthoswapper_pro.sh`
+`orthoswapper_car.r` via `orthoswapper_car.sh`
+
+*************
 
 
 ## Reciprocal best hit blast
