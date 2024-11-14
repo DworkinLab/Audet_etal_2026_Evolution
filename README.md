@@ -39,6 +39,12 @@ Next step is mapping with STAR:
 
 ## Indexing
 
+I need to convert my gff to a gtf so that STAR maps properly. Previous attempts at mapping to the gff directly resulted in very few hits, and genes not mapping at all that map when a gtf is used. The writer of star has suggested conversion when issues have been brought up [https://github.com/alexdobin/STAR/issues/901]
+
+`gffread_convert_pro.sh`
+`gffread_convert_car.sh`
+
+and then I index
 `star_index_pro.sh`
 `star_index_car.sh`
 `star_index_mel.sh`
@@ -57,36 +63,13 @@ I run:
 `orthoswapper_pro.r` via `orthoswapper_pro.sh`
 `orthoswapper_car.r` via `orthoswapper_car.sh`
 
+Next, I model each species separately and output emmeans contrasts and model estimates for each gene.
+
+`pro_modelling.R` `car_modelling.R` `mel_modelling.R`
+
+
 *************
 
-
-## Reciprocal best hit blast
-
-
-Using makeblastdb I created a nucleotide database for melanogaster, prolongata, and carrolli from the transcripts that I converted from gtf to fasta file with the readgff package. I then used blastn to blast prolongata/carrolli against melanogast and then melanogaster against prolongata/carrolli
-
-```
-extract_nuc_pro.sh
-
-makedb.sh
-
-pro2mel.sh
-mel2pro.sh
-car2mel.sh
-mel2car.sh
-
-```
-I then run an R script that find the orthologs that are a best hit in both direction, and create an index.
-
-```
-ortho_reciprocator.R
-```
-
-And finally, I run an R script that replaces mRNA#### from the pro/car counts files with the identified reciprocal best hits from the index file
-```
-orthoswapper.sh
-orthoswapper.r
-```
 
 
 
