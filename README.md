@@ -53,6 +53,8 @@ and then I index
 
 ## Mapping and counting
 
+mapping was run in the 2-pass method recomended in the manual. The scripts were run once without spice site annotations, and then ran a second time with `--sjdbFileChrStartEnd /path/to/sjdbFile.txt.`
+
 ```
 star_pro.sh
 star_car.sh
