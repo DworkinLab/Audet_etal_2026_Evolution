@@ -61,7 +61,9 @@ star_car.sh
 star_mel.sh
 ```
 
-I need a way to convert from the mRNA or gene numbers in the prolongata/carrolli annotations, to the geneIDs that are homologous with melanogaster, so I extract the information I need from the annotation for converting between all of these relevant things.
+The 2-pass mapping really didn't seem to make much of a difference. But it didn't hurt anything, so on we go.
+
+I need a way to convert from the gene numbers in the prolongata/carrolli annotations, to the geneIDs that are homologous with melanogaster, so I extract the information I need from the annotation for converting between all of these relevant things.
 
 I run:
 `orthoswapper_pro.r` via `orthoswapper_pro.sh`
