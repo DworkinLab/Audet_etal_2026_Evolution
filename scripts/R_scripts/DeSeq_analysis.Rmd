@@ -1,0 +1,349 @@
+---
+title: "DeSeq Analysis"
+author: "Tyler Audet"
+date: "`r format(Sys.time(),'%d %b %Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(digits = 3)
+```
+
+```{r}
+library(DESeq2)
+library(edgeR)
+library(tidyverse)
+library(data.table)
+```
+
+
+I load in carrolli and get a DESeq object
+
+```{r}
+car_counts <- read.table("../../outputs/car_counts.txt")
+
+car_names <- as.data.frame(names(as.data.frame(car_counts)))
+
+colnames(car_names) <- "sample"
+
+car_design <- separate(car_names, 
+                       col = "sample", 
+                       into = c("species","sex","leg","stage", "replicate"),
+                       sep = "_", remove = FALSE)
+
+car_design$replicate <- sub('ReadsPerGene.out.tab', "", car_design$replicate)
+
+
+car_design <- car_design[,-c(1:2)]
+
+# create a Dseq differentially expressed gene object
+DGE_object <- DGEList(as.matrix(car_counts))
+
+#Determine which genes have sufficiently large counts to be retained in a 
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I want to filter by the DGE_object to get genes that pass filters
+car_counts <- car_counts[row.names(DGE_object$counts),]
+
+#Need to make my formula for DeSeq
+car_design[,1:4] <- lapply(car_design[,1:4], as.factor)
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+car_dds <- DESeqDataSetFromMatrix(countData = car_counts,
+                                  colData = car_design,
+                                  design = ~ sex * leg * stage)
+
+car_dds <- DESeq2::estimateSizeFactors(car_dds)
+
+colData(car_dds)
+
+car_dds <- DESeq(car_dds)
+
+resultsNames(car_dds)
+
+```
+
+I load in prolongata and get a DESeq object
+
+```{r}
+pro_counts <- read.table("../../outputs/pro_counts.txt")
+
+pro_names <- as.data.frame(names(as.data.frame(pro_counts)))
+
+colnames(pro_names) <- "sample"
+
+pro_design <- separate(pro_names, 
+                       col = "sample", 
+                       into = c("species","sex","leg","stage", "replicate"),
+                       sep = "_", remove = FALSE)
+
+pro_design$replicate <- sub('ReadsPerGene.out.tab', "", pro_design$replicate)
+
+
+pro_design <- pro_design[,-c(1:2)]
+
+# create a Dseq differentially expressed gene object
+DGE_object <- DGEList(as.matrix(pro_counts))
+
+#Determine which genes have sufficiently large counts to be retained in a 
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I want to filter by the DGE_object to get genes that pass filters
+pro_counts <- pro_counts[row.names(DGE_object$counts),]
+
+#Need to make my formula for DeSeq
+pro_design[,1:4] <- lapply(pro_design[,1:4], as.factor)
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+pro_dds <- DESeqDataSetFromMatrix(countData = pro_counts,
+                                  colData = pro_design,
+                                  design = ~ sex * leg * stage)
+
+pro_dds <- DESeq2::estimateSizeFactors(pro_dds)
+
+colData(pro_dds)
+
+pro_dds <- DESeq(pro_dds)
+
+resultsNames(pro_dds)
+```
+
+I load in melanogaster to get a DESeq object
+
+```{r}
+mel_counts <- read.table("../../outputs/mel_counts.txt")
+
+mel_names <- as.data.frame(names(as.data.frame(mel_counts)))
+
+colnames(mel_names) <- "sample"
+
+mel_design <- separate(mel_names, 
+                       col = "sample", 
+                       into = c("species","sex","leg","stage", "replicate"),
+                       sep = "_", remove = FALSE)
+
+mel_design$replicate <- sub('ReadsPerGene.out.tab', "", mel_design$replicate)
+
+
+mel_design <- mel_design[,-c(1:2)]
+
+# create a Dseq differentially expressed gene object
+DGE_object <- DGEList(as.matrix(mel_counts))
+
+#Determine which genes have sufficiently large counts to be retained in a 
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I want to filter by the DGE_object to get genes that pass filters
+mel_counts <- mel_counts[row.names(DGE_object$counts),]
+
+#Need to make my formula for DeSeq
+mel_design[,1:4] <- lapply(mel_design[,1:4], as.factor)
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+mel_dds <- DESeqDataSetFromMatrix(countData = mel_counts,
+                                  colData = mel_design,
+                                  design = ~ sex * leg * stage)
+
+mel_dds <- DESeq2::estimateSizeFactors(mel_dds)
+
+colData(mel_dds)
+
+mel_dds <- DESeq(mel_dds)
+
+resultsNames(mel_dds)
+```
+
+```{r}
+
+test_for_early <- as.data.frame(results(pro_dds, contrast=list("sex_M_vs_F")))
+
+# uncorrected for comparison
+#test_for_early <- as.data.frame(results(pro_dds, contrast=list("sex_M_vs_F")))
+
+#test_for_early_LF2 <- test_for_early[which(test_for_early$log2FoldChange > 1 | test_for_early$log2FoldChange < -1 & test_for_early$padj < 0.05),]
+
+test_for_early$gene <- row.names(test_for_early)
+
+#
+
+test_for_late <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.stagelate"))))
+
+# uncorrected for comparison
+#test_for_late <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.stagelate"))))
+
+
+#test_for_late_LF2 <- test_for_late[which(test_for_late$log2FoldChange > 1 | test_for_late$log2FoldChange < -1 & test_for_late$padj < 0.05),]
+
+test_for_late$gene <- row.names(test_for_late)
+
+#
+
+test_mid_early <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid"))))
+
+# uncorrected for comparison
+#test_mid_early <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid"))))
+
+
+#test_mid_early_LF2 <- test_mid_early[which(test_mid_early$log2FoldChange > 1 | test_mid_early$log2FoldChange < -1 & test_mid_early$padj < 0.05),]
+
+test_mid_early$gene <- row.names(test_mid_early)
+
+#
+
+test_mid_late <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid.stagelate"))))
+
+# uncorrected for comparison
+#test_mid_late <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid.stagelate"))))
+
+#test_mid_late_LF2 <- test_mid_late[which(test_mid_late$log2FoldChange > 1 | test_mid_late$log2FoldChange < -1 & test_mid_late$padj < 0.05),]
+
+test_mid_late$gene <- row.names(test_mid_late)
+
+#
+
+
+# these are emmeans estimates > 2 log2 fold change
+genes <- fread("../data/prolongata_norms", h = T)
+
+genes_for_late <- genes[leg == "for" & stage == "late"]
+genes_for_early <- genes[leg == "for" & stage == "early"]
+genes_mid_early <- genes[leg == "mid" & stage == "early"]
+genes_mid_late <- genes[leg == "mid" & stage == "late"]
+
+#genes_for_late$gene <- rownames(genes_for_late)
+#genes_for_early$gene <- rownames(genes_for_early)
+#genes_mid_late$gene <- rownames(genes_mid_late)
+#genes_mid_early$gene <- rownames(genes_mid_early)
+
+# merge them for plotting, this also pulls out the genes found in both data.tables
+interesting_genes_for_late <- merge(genes_for_late, test_for_late, by="gene")
+
+interesting_genes_for_early <- merge(genes_for_early, test_for_early, by="gene")
+
+interesting_genes_mid_late <- merge(genes_mid_late, test_mid_late, by="gene")
+
+interesting_genes_mid_early <- merge(genes_mid_early, test_mid_early, by="gene")
+```
+
+non-regularized
+```{r}
+ggplot(interesting_genes_for_late, aes(x = estimate, y = log2FoldChange, colour = LCL > 1 | UCL < -1)) +
+  geom_point(alpha = 0.5, size = 1.25) +
+  ylab("DESeq estimate without ashr regularization") +
+  xlab("glmmTMB estimate without ashr regularization") +
+  geom_linerange(aes(xmin = LCL, xmax = UCL), alpha = 0.4) +
+  geom_linerange(aes(ymin = log2FoldChange-2*lfcSE, ymax = log2FoldChange+2*lfcSE), alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, colour = "red", linetype = 2) +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_colour_manual(values = c("lightgrey","black"))
+  
+ggplot(interesting_genes_for_early, aes(x = estimate, y = log2FoldChange, colour = LCL > 1 | UCL < -1)) +
+  geom_point(alpha = 0.5, size = 1.25) +
+  ylab("DESeq estimate without ashr regularization") +
+  xlab("glmmTMB estimate without ashr regularization") +
+  geom_linerange(aes(xmin = LCL, xmax = UCL), alpha = 0.4) +
+  geom_linerange(aes(ymin = log2FoldChange-2*lfcSE, ymax = log2FoldChange+2*lfcSE), alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, colour = "red", linetype = 2) +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_colour_manual(values = c("lightgrey","black"))
+  
+interesting_genes_for_early[interesting_genes_for_early$log2FoldChange > 10]
+
+interesting_genes_for_early[interesting_genes_for_early$log2FoldChange > 10]
+
+```
+
+
+regularize
+
+```{r}
+
+test_for_early <- as.data.frame(lfcShrink(pro_dds,res = results(pro_dds, contrast=list("sex_M_vs_F")), type = "ashr"))
+
+# uncorrected for comparison
+#test_for_early <- as.data.frame(results(pro_dds, contrast=list("sex_M_vs_F")))
+
+#test_for_early_LF2 <- test_for_early[which(test_for_early$log2FoldChange > 1 | test_for_early$log2FoldChange < -1 & test_for_early$padj < 0.05),]
+
+test_for_early$gene <- row.names(test_for_early)
+
+#
+
+test_for_late <- as.data.frame(lfcShrink(pro_dds,res = results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.stagelate"))), type = "ashr"))
+
+# uncorrected for comparison
+#test_for_late <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.stagelate"))))
+
+
+#test_for_late_LF2 <- test_for_late[which(test_for_late$log2FoldChange > 1 | test_for_late$log2FoldChange < -1 & test_for_late$padj < 0.05),]
+
+test_for_late$gene <- row.names(test_for_late)
+
+#
+
+test_mid_early <- as.data.frame(lfcShrink(pro_dds,res = results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid"))), type = "ashr"))
+
+# uncorrected for comparison
+#test_mid_early <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid"))))
+
+
+#test_mid_early_LF2 <- test_mid_early[which(test_mid_early$log2FoldChange > 1 | test_mid_early$log2FoldChange < -1 & test_mid_early$padj < 0.05),]
+
+test_mid_early$gene <- row.names(test_mid_early)
+
+#
+
+test_mid_late <- as.data.frame(lfcShrink(pro_dds,res = results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid.stagelate"))), type = "ashr"))
+
+# uncorrected for comparison
+#test_mid_late <- as.data.frame(results(pro_dds, contrast=list(c("sex_M_vs_F","sexM.legmid.stagelate"))))
+
+#test_mid_late_LF2 <- test_mid_late[which(test_mid_late$log2FoldChange > 1 | test_mid_late$log2FoldChange < -1 & test_mid_late$padj < 0.05),]
+
+test_mid_late$gene <- row.names(test_mid_late)
+
+```
+
+
+
+```{r}
+
+ggplot(interesting_genes_for_late, aes(x = estimate_log2, y = log2FoldChange, colour = LCL_log2 > 1 | UCL_log2 < -1)) +
+  geom_point(alpha = 0.5, size = 1.25) +
+  ylab("DESeq estimate with ashr regularization") +
+  xlab("glmmTMB estimate with ashr regularization") +
+  geom_linerange(aes(xmin = LCL_log2, xmax = UCL_log2), alpha = 0.4) +
+  geom_linerange(aes(ymin = log2FoldChange-2*lfcSE, ymax = log2FoldChange+2*lfcSE), alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, colour = "red", linetype = 2) +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_colour_manual(values = c("lightgrey","black"))
+  
+ggplot(interesting_genes_for_early, aes(x = estimate_log2, y = log2FoldChange, colour = LCL_log2 > 1 | UCL_log2 < -1)) +
+  geom_point(alpha = 0.5, size = 1.25) +
+  ylab("DESeq estimate with ashr regularization") +
+  xlab("glmmTMB estimate with ashr regularization") +
+  geom_linerange(aes(xmin = LCL_log2, xmax = UCL_log2), alpha = 0.4) +
+  geom_linerange(aes(ymin = log2FoldChange-2*lfcSE, ymax = log2FoldChange+2*lfcSE), alpha = 0.4) +
+  geom_abline(slope = 1, intercept = 0, colour = "red", linetype = 2) +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_colour_manual(values = c("lightgrey","black"))
+  
+interesting_genes_for_early[interesting_genes_for_early$log2FoldChange > 10]
+
+```
+
+
+

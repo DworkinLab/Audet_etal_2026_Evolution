@@ -1,0 +1,4065 @@
+---
+title: "Vector_Correlations"
+author: "Tyler Audet"
+date: "2024-11-24"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(ashr)
+library(data.table)
+library(cowplot)
+library(patchwork)
+```
+
+below is the Vector correlation functions
+
+```{r}
+
+PD <- function(x) { 
+  sqrt(t(x)%*%x)}
+#this function gives me the vector correlation and angle, and vector magnitude ratio, alpha, between two vectors.
+
+# alpha of 1 means that vector 2 is the same length as vector 1. 
+# lower than one means that vec1 has a smaller magnitude than vec2
+# greater than 1 means that vec1 has a larger magnitude than vec2.
+
+ang.vec.alph <- function(vec1, vec2) {
+  vec1_c <- vec1 - mean(vec1)
+  vec2_c <- vec2 - mean(vec2)
+  vec.cor <- (t(vec1_c) %*% vec2_c)/(PD(vec1_c)*PD(vec2_c))
+  vec.angle <- acos(vec.cor)*(180/pi)
+  vec.alpha <- PD(vec1)/PD(vec2) # vectors not centered
+  vec.alpha_c <- PD(vec1_c)/PD(vec2_c) # vectors centered
+  
+  vec.ED <- PD(vec2-vec1) #Subtract vector one from vector two and then calculate PD for Euclidean Distance. 
+  ## Do not use vec.ED unless examining mean gene expr vectors. Specifically do not use for fold change
+  return(c(vector.cor = vec.cor, vec.angle=vec.angle, vec.alpha = vec.alpha, vec.alpha_c = vec.alpha_c, vector.ED = vec.ED))} 
+
+
+#The function below will generate two vectors of the same length as the experimental vectors provided to it with the argument 'sig_vec'
+RandomVectorSampler <- function(vec1, vec2, sig_vec) {
+  sig_vector_length <- length(sig_vec)
+  
+  random_index <- sample(1:length(vec1), size = sig_vector_length)
+  sub_vec1 <- na.omit(vec1[random_index])
+  sub_vec2 <- na.omit(vec2[random_index])
+  
+  ang.vec.alph(sub_vec1, sub_vec2)
+}
+
+comment(RandomVectorSampler) <- c("vec1 = vector of complete genelist comparison 1",
+                                  "vec2 = vector of complete genelist comparison 2",
+                                  "sig_vec = vector of significant genes, to get length")
+
+```
+
+First load the M-F contrasts
+
+```{r}
+dp <- fread("../../data/prolongata_norms")
+dc <- fread("../../data/carrolli_norms")
+dm <- fread("../../data/melanogaster_norms")
+```
+
+Vector correlation analysis
+
+First thing I will do is get all of the subsets of the data for each species which will give me an estimate for every gene for each combination of values.
+
+From ID, just looking at distributions of 
+```{r}
+blah <- abs(dp$UCL_log2 - dp$LCL_log2)
+hist(blah)
+
+quantile(blah, probs = c(0.5, 0.9, 0.95, 0.99, 0.999, 1))
+
+length(blah)
+sum(blah < 4)
+sum(blah < 6)
+```
+
+I want to pull in the estimates without a contrast, extract the stage and leg specific estimates to find genes that should be filtered out when we extract subsets of our fixed effects below.
+
+```{r}
+mf_dp <- na.omit(fread("../../outputs/pro_separate.txt"))
+mf_dm <- na.omit(fread("../../outputs/mel_separate.txt"))
+mf_dc <- na.omit(fread("../../outputs/car_separate.txt"))
+
+mf_dp <- mf_dp[,c(-1,-7,-8)]
+mf_dm <- mf_dm[,c(-1,-7,-8)]
+mf_dc <- mf_dc[,c(-1,-7,-8)]
+
+colnames(mf_dp) <- c("gene", "sex", "leg", "stage", "estimate", "LCL", "UCL")
+colnames(mf_dm) <- c("gene", "sex", "leg", "stage", "estimate", "LCL", "UCL")
+colnames(mf_dc) <- c("gene", "sex", "leg", "stage", "estimate", "LCL", "UCL")
+
+mf_dp$estimate_log2 <- log2(exp(mf_dp$estimate))
+mf_dm$estimate_log2 <- log2(exp(mf_dm$estimate))
+mf_dc$estimate_log2 <- log2(exp(mf_dc$estimate))
+
+mf_dp$UCL_log2 <- log2(exp(mf_dp$UCL))
+mf_dm$UCL_log2 <- log2(exp(mf_dm$UCL))
+mf_dc$UCL_log2 <- log2(exp(mf_dc$UCL))
+
+mf_dp$LCL_log2 <- log2(exp(mf_dp$LCL))
+mf_dm$LCL_log2 <- log2(exp(mf_dm$LCL))
+mf_dc$LCL_log2 <- log2(exp(mf_dc$LCL))
+
+bad_genes <- unique(c(mf_dp[LCL_log2 <= 0]$gene, mf_dc[LCL_log2 <= 0]$gene, mf_dm[LCL_log2 <= 0]$gene))
+
+```
+
+Below I get the subsetted data.tables without the genes that have lower confidence limits below zero. These genes tend to have very very low expression and complete separation between the sexes, which causes very high variance and messes with the vector correlation and alphas
+```{r}
+
+master <- dp$gene[which(dp$gene %in% dc$gene & dp$gene %in% dm$gene)]
+
+master <- master[-which(master %in% bad_genes)]
+
+dp <- dp[dp$gene %in% master]
+dc <- dc[dc$gene %in% master]
+dm <- dm[dm$gene %in% master]
+
+# get the subsetted data sets
+dp_subset_for_late <- dp[leg == "for" & stage == "late"]
+dp_subset_for_early <- dp[leg == "for" & stage == "early"]
+dp_subset_mid_late <- dp[leg == "mid" & stage == "late"]
+dp_subset_mid_early <- dp[leg == "mid" & stage == "early"]
+#
+dm_subset_for_late <- dm[leg == "for" & stage == "late"]
+dm_subset_for_early <- dm[leg == "for" & stage == "early"]
+dm_subset_mid_late <- dm[leg == "mid" & stage == "late"]
+dm_subset_mid_early <- dm[leg == "mid" & stage == "early"]
+#
+dc_subset_for_late <- dc[leg == "for" & stage == "late"]
+dc_subset_for_early <- dc[leg == "for" & stage == "early"]
+dc_subset_mid_late <- dc[leg == "mid" & stage == "late"]
+dc_subset_mid_early <- dc[leg == "mid" & stage == "early"]
+
+
+# next I want to get the gene lists that I care about, I subset so the CI does not overlap a log2 change in either direction
+
+genes_of_interest <- fread("../../paper/SupplementalFile1.csv")
+
+male_genes <- as.character(genes_of_interest$gene[genes_of_interest$LCL > 0])
+
+female_genes <- as.character(genes_of_interest$gene[genes_of_interest$LCL < 0])
+
+genes_of_interest <- as.character(genes_of_interest$gene)
+
+
+
+grn_targets <- read.table("../../outputs/grn_targetGenes.txt")
+
+#dp_genes_for_late <- dp_subset_for_late$gene[dp_subset_for_late$LCL_log2 > 1 | dp_subset_for_late$UCL_log2 < -1]
+
+#dp_genes_for_early <- dp_subset_for_early$gene[dp_subset_for_early$LCL_log2 > 1 | dp_subset_for_early$UCL_log2 < -1]
+
+```
+
+Below I will compare the vector correlation and magnitude of foreleg LF2 genes expression in foreleg vs midlegs within prolongata, carrolli, and melanogaster, for both the early stage and the late stage.
+
+```{r}
+# within D. prolongata, foreleg late vs midleg late correlations
+
+# LF2 genes in the foreleg
+dp_subset_for_late_VC <- dp_subset_for_late[which(dp_subset_for_late$gene %in% genes_of_interest),]
+
+# 2LFC genes from the forelegs, but their expression in the midlegs
+dp_subset_mid_late_VC <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% genes_of_interest),]
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid <- ang.vec.alph(dp_subset_for_late_VC$estimate_log2, dp_subset_mid_late_VC$estimate_log2)
+
+dp_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  # all of the foreleg LFC of genes that occur in both the foreleg and midleg ( should be all of them but I use this subsetting method for carry over when I compare between species where genes may not overlap perfectly)
+  vec1 = dp_subset_for_late$estimate_log2,
+  # vector of LFC genes for midleg
+  vec2 = dp_subset_mid_late$estimate_log2,
+  # vector that is the length of the vectors used for the correlations
+  sig_vec = dp_subset_for_late_VC$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random[,1], breaks = 50)
+#hist(dp_late_forVmid_random[,4], breaks = 50)
+# There seems to be a strange peak at really high correlation that may be pulling the upper limit higher?
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants <- quantile(dp_late_forVmid_random[,1] , c(0.025,0.975))
+dp_late_forVmid_random_quants_alpha <- quantile(dp_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid <- as.data.frame(t(c(VC_dp_late_forVmid,dp_late_forVmid_random_quants,dp_late_forVmid_random_quants_alpha,"D. prolongata","Late")))
+
+# within D. prolongata, foreleg early vs midleg early correlations
+
+dp_subset_for_early_VC <- dp_subset_for_early[which(dp_subset_for_early$gene %in% genes_of_interest),]
+
+dp_subset_mid_early_VC <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% genes_of_interest),]
+
+# number of genes don't match because of the filtering of the high variance genes, so I filter down to match the lists
+
+dp_early_forVmid <- ang.vec.alph(dp_subset_for_early_VC$estimate_log2, dp_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dp_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dp_subset_for_early$estimate_log2,
+  vec2 = dp_subset_mid_early$estimate_log2,
+  sig_vec = dp_subset_for_early_VC$estimate_log2)))
+
+#hist(dp_early_forVmid_random[,1], breaks = 50)
+
+dp_early_for_random_quants <- quantile(dp_early_forVmid_random[,1] , c(0.025,0.975))
+dp_early_for_random_quants_alpha <- quantile(dp_early_forVmid_random[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid <- as.data.frame(t(c(dp_early_forVmid,dp_early_for_random_quants,dp_early_for_random_quants_alpha,"D. prolongata","Early")))
+#
+
+# within D. carrolli, foreleg late vs midleg late correlations
+
+dc_subset_for_late_VC <- dc_subset_for_late[which(dc_subset_for_late$gene %in% genes_of_interest),]
+
+dc_subset_mid_late_VC <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% genes_of_interest),]
+
+VC_dc_late_forVmid <- ang.vec.alph(dc_subset_for_late_VC$estimate_log2, dc_subset_mid_late_VC$estimate_log2)
+
+dc_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_late$estimate_log2,
+  vec2 = dc_subset_mid_late$estimate_log2,
+  sig_vec = dc_subset_for_late_VC$estimate_log2)))
+
+#hist(dc_late_forVmid_random[,1], breaks = 50)
+
+dc_late_forVmid_random_quants <- quantile(dc_late_forVmid_random[,1] , c(0.025,0.975))
+dc_late_forVmid_random_quants_alpha <- quantile(dc_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid <- as.data.frame(t(c(VC_dc_late_forVmid,dc_late_forVmid_random_quants,dc_late_forVmid_random_quants_alpha,"D. carrolli","Late")))
+#
+
+
+
+#
+
+# within D. carrolli, foreleg early vs midleg early correlations
+
+dc_subset_for_early_VC <- dc_subset_for_early[which(dc_subset_for_early$gene %in% genes_of_interest),]
+
+dc_subset_mid_early_VC <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% genes_of_interest),]
+
+dc_early_forVmid <- ang.vec.alph(dc_subset_for_early_VC$estimate_log2, dc_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dc_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_early$estimate_log2,
+  vec2 = dc_subset_mid_early$estimate_log2,
+  sig_vec = dc_subset_for_early_VC$estimate_log2)))
+
+#hist(dc_early_forVmid_random[,1], breaks = 50)
+
+dc_early_for_random_quants <- quantile(dc_early_forVmid_random[,1] , c(0.025,0.975))
+dc_early_for_random_quants_alpha <- quantile(dc_early_forVmid_random[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for <- as.data.frame(t(c(dc_early_forVmid,dc_early_for_random_quants,dc_early_for_random_quants_alpha,"D. carrolli","Early")))
+
+#
+
+
+
+# within D. melanogaster, foreleg late vs midleg late correlations
+
+dm_subset_for_late_VC <- dm_subset_for_late[which(dm_subset_for_late$gene %in% genes_of_interest),]
+
+dm_subset_mid_late_VC <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% genes_of_interest),]
+
+VC_dm_late_forVmid <- ang.vec.alph(dm_subset_for_late_VC$estimate_log2, dm_subset_mid_late_VC$estimate_log2)
+
+dm_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_late$estimate_log2,
+  vec2 = dm_subset_mid_late$estimate_log2,
+  sig_vec = dm_subset_for_late_VC$estimate_log2)))
+
+#hist(dm_late_forVmid_random[,1], breaks = 50)
+
+dm_late_forVmid_random_quants <- quantile(dm_late_forVmid_random[,1] , c(0.025,0.975))
+dm_late_forVmid_random_quants_alpha <- quantile(dm_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dm_late_forVmid <- as.data.frame(t(c(VC_dm_late_forVmid,dm_late_forVmid_random_quants,dm_late_forVmid_random_quants_alpha,"D. melanogaster","Late")))
+
+#
+
+
+
+#
+
+# within D. melanogaster, foreleg early vs midleg early correlations
+
+dm_subset_for_early_VC <- dm_subset_for_early[which(dm_subset_for_early$gene %in% genes_of_interest),]
+
+dm_subset_mid_early_VC <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% genes_of_interest),]
+
+dm_early_forVmid <- ang.vec.alph(dm_subset_for_early_VC$estimate_log2, dm_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dm_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_early$estimate_log2,
+  vec2 = dm_subset_mid_early$estimate_log2,
+  sig_vec = dm_subset_for_early_VC$estimate_log2)))
+
+#hist(dm_early_forVmid_random[,1], breaks = 50)
+
+dm_early_for_random_quants <- quantile(dm_early_forVmid_random[,1] , c(0.025,0.975))
+dm_early_for_random_quants_alpha <- quantile(dm_early_forVmid_random[,4] , c(0.025,0.975))
+
+#
+
+plotting_dm_early_for <- as.data.frame(t(c(dm_early_forVmid,dm_early_for_random_quants,dm_early_for_random_quants_alpha,"D. melanogaster","Early")))
+
+#
+
+
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid,plotting_VC_dp_early_forVmid,plotting_VC_dc_late_forVmid,plotting_dc_early_for,plotting_VC_dm_late_forVmid,plotting_dm_early_for))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+for_mid_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to midleg \nvector correlation") +
+  xlab("Developmental stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+for_mid_mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(for_mid_VC)/(for_mid_mag)
+
+```
+
+Male biased genes
+
+```{r}
+# within D. prolongata, foreleg late vs midleg late correlations
+
+# LF2 genes in the foreleg
+dp_subset_for_late_VC <- dp_subset_for_late[which(dp_subset_for_late$gene %in% male_genes),]
+
+# 2LFC genes from the forelegs, but their expression in the midlegs
+dp_subset_mid_late_VC <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% male_genes),]
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid <- ang.vec.alph(dp_subset_for_late_VC$estimate_log2, dp_subset_mid_late_VC$estimate_log2)
+
+dp_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dp_subset_for_late$estimate_log2,
+  vec2 = dp_subset_mid_late$estimate_log2,
+  sig_vec = dp_subset_for_late_VC$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random[,1], breaks = 50)
+#hist(dp_late_forVmid_random[,4], breaks = 50)
+# There seems to be a strange peak at really high correlation that may be pulling the upper limit higher?
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants <- quantile(dp_late_forVmid_random[,1] , c(0.025,0.975))
+dp_late_forVmid_random_quants_alpha <- quantile(dp_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid <- as.data.frame(t(c(VC_dp_late_forVmid,dp_late_forVmid_random_quants,dp_late_forVmid_random_quants_alpha,"D. prolongata","Late")))
+
+#
+
+
+
+#
+
+# within D. prolongata, foreleg early vs midleg early correlations
+
+dp_subset_for_early_VC <- dp_subset_for_early[which(dp_subset_for_early$gene %in% male_genes),]
+
+dp_subset_mid_early_VC <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% male_genes),]
+
+dp_early_forVmid <- ang.vec.alph(dp_subset_for_early_VC$estimate_log2, dp_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dp_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dp_subset_for_early$estimate_log2,
+  vec2 = dp_subset_mid_early$estimate_log2,
+  sig_vec = dp_subset_for_early_VC$estimate_log2)))
+
+#hist(dp_early_forVmid_random[,1], breaks = 50)
+
+dp_early_for_random_quants <- quantile(dp_early_forVmid_random[,1] , c(0.025,0.975))
+dp_early_for_random_quants_alpha <- quantile(dp_early_forVmid_random[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid <- as.data.frame(t(c(dp_early_forVmid,dp_early_for_random_quants,dp_early_for_random_quants_alpha,"D. prolongata","Early")))
+#
+#
+#
+
+# within D. carrolli, foreleg late vs midleg late correlations
+
+dc_subset_for_late_VC <- dc_subset_for_late[which(dc_subset_for_late$gene %in% male_genes),]
+
+dc_subset_mid_late_VC <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% male_genes),]
+
+VC_dc_late_forVmid <- ang.vec.alph(dc_subset_for_late_VC$estimate_log2, dc_subset_mid_late_VC$estimate_log2)
+
+dc_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_late$PosteriorMea,
+  vec2 = dc_subset_mid_late$estimate_log2,
+  sig_vec = dc_subset_for_late_VC$estimate_log2)))
+
+#hist(dc_late_forVmid_random[,1], breaks = 50)
+
+dc_late_forVmid_random_quants <- quantile(dc_late_forVmid_random[,1] , c(0.025,0.975))
+dc_late_forVmid_random_quants_alpha <- quantile(dc_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid <- as.data.frame(t(c(VC_dc_late_forVmid,dc_late_forVmid_random_quants,dc_late_forVmid_random_quants_alpha,"D. carrolli","Late")))
+
+
+# within D. carrolli, foreleg early vs midleg early correlations
+
+dc_subset_for_early_VC <- dc_subset_for_early[which(dc_subset_for_early$gene %in% male_genes),]
+
+dc_subset_mid_early_VC <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% male_genes),]
+
+dc_early_forVmid <- ang.vec.alph(dc_subset_for_early_VC$estimate_log2, dc_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dc_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_early$estimate_log2,
+  vec2 = dc_subset_mid_early$estimate_log2,
+  sig_vec = dc_subset_for_early_VC$estimate_log2)))
+
+#hist(dc_early_forVmid_random[,1], breaks = 50)
+
+dc_early_for_random_quants <- quantile(dc_early_forVmid_random[,1] , c(0.025,0.975))
+dc_early_for_random_quants_alpha <- quantile(dc_early_forVmid_random[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for <- as.data.frame(t(c(dc_early_forVmid,dc_early_for_random_quants,dc_early_for_random_quants_alpha,"D. carrolli","Early")))
+
+# within D. melanogaster, foreleg late vs midleg late correlations
+
+dm_subset_for_late_VC <- dm_subset_for_late[which(dm_subset_for_late$gene %in% male_genes),]
+
+dm_subset_mid_late_VC <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% male_genes),]
+
+VC_dm_late_forVmid <- ang.vec.alph(dm_subset_for_late_VC$estimate_log2, dm_subset_mid_late_VC$estimate_log2)
+
+dm_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_late$estimate_log2,
+  vec2 = dm_subset_mid_late$estimate_log2,
+  sig_vec = dm_subset_for_late_VC$estimate_log2)))
+
+#hist(dm_late_forVmid_random[,1], breaks = 50)
+
+dm_late_forVmid_random_quants <- quantile(dm_late_forVmid_random[,1] , c(0.025,0.975))
+dm_late_forVmid_random_quants_alpha <- quantile(dm_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dm_late_forVmid <- as.data.frame(t(c(VC_dm_late_forVmid,dm_late_forVmid_random_quants,dm_late_forVmid_random_quants_alpha,"D. melanogaster","Late")))
+
+# within D. melanogaster, foreleg early vs midleg early correlations
+
+dm_subset_for_early_VC <- dm_subset_for_early[which(dm_subset_for_early$gene %in% male_genes),]
+
+dm_subset_mid_early_VC <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% male_genes),]
+
+
+dm_early_forVmid <- ang.vec.alph(dm_subset_for_early_VC$estimate_log2, dm_subset_mid_early_VC$estimate_log2)
+
+dm_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_early$estimate_log2,
+  vec2 = dm_subset_mid_early$estimate_log2,
+  sig_vec = dm_subset_for_early_VC$estimate_log2)))
+
+#hist(dm_early_forVmid_random[,1], breaks = 50)
+
+dm_early_for_random_quants <- quantile(dm_early_forVmid_random[,1] , c(0.025,0.975))
+dm_early_for_random_quants_alpha <- quantile(dm_early_forVmid_random[,4] , c(0.025,0.975))
+
+#
+
+plotting_dm_early_for <- as.data.frame(t(c(dm_early_forVmid,dm_early_for_random_quants,dm_early_for_random_quants_alpha,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid,plotting_VC_dp_early_forVmid,plotting_VC_dc_late_forVmid,plotting_dc_early_for,plotting_VC_dm_late_forVmid,plotting_dm_early_for))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+for_mid_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to midleg \nvector correlation") +
+  xlab("Developmental stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+for_mid_mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+   ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(for_mid_VC)/(for_mid_mag)
+
+```
+
+Female biased gene
+
+```{r}
+# within D. prolongata, foreleg late vs midleg late correlations
+
+# LF2 genes in the foreleg
+dp_subset_for_late_VC <- dp_subset_for_late[which(dp_subset_for_late$gene %in% female_genes),]
+
+# 2LFC genes from the forelegs, but their expression in the midlegs
+dp_subset_mid_late_VC <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% female_genes),]
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid <- ang.vec.alph(dp_subset_for_late_VC$estimate_log2, dp_subset_mid_late_VC$estimate_log2)
+
+dp_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dp_subset_for_late$estimate_log2,
+  vec2 = dp_subset_mid_late$estimate_log2,
+  sig_vec = dp_subset_for_late_VC$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random[,1], breaks = 50)
+#hist(dp_late_forVmid_random[,4], breaks = 50)
+# There seems to be a strange peak at really high correlation that may be pulling the upper limit higher?
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants <- quantile(dp_late_forVmid_random[,1] , c(0.025,0.975))
+dp_late_forVmid_random_quants_alpha <- quantile(dp_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid <- as.data.frame(t(c(VC_dp_late_forVmid,dp_late_forVmid_random_quants,dp_late_forVmid_random_quants_alpha,"D. prolongata","late")))
+
+#
+
+
+
+#
+
+# within D. prolongata, foreleg early vs midleg early correlations
+
+dp_subset_for_early_VC <- dp_subset_for_early[which(dp_subset_for_early$gene %in% female_genes),]
+
+dp_subset_mid_early_VC <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% female_genes),]
+
+dp_early_forVmid <- ang.vec.alph(dp_subset_for_early_VC$estimate_log2, dp_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dp_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dp_subset_for_early$estimate_log2,
+  vec2 = dp_subset_mid_early$estimate_log2,
+  sig_vec = dp_subset_for_early_VC$estimate_log2)))
+
+#hist(dp_early_forVmid_random[,1], breaks = 50)
+
+dp_early_for_random_quants <- quantile(dp_early_forVmid_random[,1] , c(0.025,0.975))
+dp_early_for_random_quants_alpha <- quantile(dp_early_forVmid_random[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid <- as.data.frame(t(c(dp_early_forVmid,dp_early_for_random_quants,dp_early_for_random_quants_alpha,"D. prolongata","early")))
+#
+#
+#
+
+# within D. carrolli, foreleg late vs midleg late correlations
+
+dc_subset_for_late_VC <- dc_subset_for_late[which(dc_subset_for_late$gene %in% female_genes),]
+
+dc_subset_mid_late_VC <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% female_genes),]
+
+VC_dc_late_forVmid <- ang.vec.alph(dc_subset_for_late_VC$estimate_log2, dc_subset_mid_late_VC$estimate_log2)
+
+dc_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_late$estimate_log2,
+  vec2 = dc_subset_mid_late$estimate_log2,
+  sig_vec = dc_subset_for_late_VC$estimate_log2)))
+
+#hist(dc_late_forVmid_random[,1], breaks = 50)
+
+dc_late_forVmid_random_quants <- quantile(dc_late_forVmid_random[,1] , c(0.025,0.975))
+dc_late_forVmid_random_quants_alpha <- quantile(dc_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid <- as.data.frame(t(c(VC_dc_late_forVmid,dc_late_forVmid_random_quants,dc_late_forVmid_random_quants_alpha,"D. carrolli","late")))
+#
+
+
+
+#
+
+# within D. carrolli, foreleg early vs midleg early correlations
+
+dc_subset_for_early_VC <- dc_subset_for_early[which(dc_subset_for_early$gene %in% female_genes),]
+
+dc_subset_mid_early_VC <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% female_genes),]
+
+dc_early_forVmid <- ang.vec.alph(dc_subset_for_early_VC$estimate_log2, dc_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dc_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_early$estimate_log2,
+  vec2 = dc_subset_mid_early$estimate_log2,
+  sig_vec = dc_subset_for_early_VC$estimate_log2)))
+
+#hist(dc_early_forVmid_random[,1], breaks = 50)
+
+dc_early_for_random_quants <- quantile(dc_early_forVmid_random[,1] , c(0.025,0.975))
+dc_early_for_random_quants_alpha <- quantile(dc_early_forVmid_random[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for <- as.data.frame(t(c(dc_early_forVmid,dc_early_for_random_quants,dc_early_for_random_quants_alpha,"D. carrolli","early")))
+
+#
+
+
+
+# within D. melanogaster, foreleg late vs midleg late correlations
+
+dm_subset_for_late_VC <- dm_subset_for_late[which(dm_subset_for_late$gene %in% female_genes),]
+
+dm_subset_mid_late_VC <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% female_genes),]
+
+VC_dm_late_forVmid <- ang.vec.alph(dm_subset_for_late_VC$estimate_log2, dm_subset_mid_late_VC$estimate_log2)
+
+dm_late_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_late$estimate_log2,
+  vec2 = dm_subset_mid_late$estimate_log2,
+  sig_vec = dm_subset_for_late_VC$estimate_log2)))
+
+#hist(dm_late_forVmid_random[,1], breaks = 50)
+
+dm_late_forVmid_random_quants <- quantile(dm_late_forVmid_random[,1] , c(0.025,0.975))
+dm_late_forVmid_random_quants_alpha <- quantile(dm_late_forVmid_random[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dm_late_forVmid <- as.data.frame(t(c(VC_dm_late_forVmid,dm_late_forVmid_random_quants,dm_late_forVmid_random_quants_alpha,"D. melanogaster","late")))
+
+#
+
+
+
+#
+
+# within D. melanogaster, foreleg early vs midleg early correlations
+
+dm_subset_for_early_VC <- dm_subset_for_early[which(dm_subset_for_early$gene %in% female_genes),]
+
+dm_subset_mid_early_VC <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% female_genes),]
+
+dm_early_forVmid <- ang.vec.alph(dm_subset_for_early_VC$estimate_log2, dm_subset_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dm_early_forVmid_random <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_early$estimate_log2,
+  vec2 = dm_subset_mid_early$estimate_log2,
+  sig_vec = dm_subset_for_early_VC$estimate_log2)))
+
+#hist(dm_early_forVmid_random[,1], breaks = 50)
+
+dm_early_for_random_quants <- quantile(dm_early_forVmid_random[,1] , c(0.025,0.975))
+dm_early_for_random_quants_alpha <- quantile(dm_early_forVmid_random[,4] , c(0.025,0.975))
+
+#
+
+plotting_dm_early_for <- as.data.frame(t(c(dm_early_forVmid,dm_early_for_random_quants,dm_early_for_random_quants_alpha,"D. melanogaster","early")))
+
+#
+
+
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid,plotting_VC_dp_early_forVmid,plotting_VC_dc_late_forVmid,plotting_dc_early_for,plotting_VC_dm_late_forVmid,plotting_dm_early_for))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+for_mid_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank())  +
+  theme(strip.text = element_text(face = "italic"))
+
+for_mid_mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("change in vector magnitude\n (foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5)  +
+  theme(strip.text = element_text(face = "italic"))
+
+(for_mid_VC)/(for_mid_mag)
+
+```
+
+
+Pathway work
+Start by loading in the pathway group data from flybase:
+
+```{r}
+pathway_ddat <- fread("../../data/pathway_group_data_fb_2024_04.tsv")
+```
+
+Insulin signalling pathway genes in the foreleg vs. midleg at each stage for all species
+
+```{r}
+INS_genes <- pathway_ddat$Group_member_FB_gene_symbol[grep("INS",pathway_ddat$FB_group_symbol)]
+
+# get the subsetted data sets
+dp_subset_for_late_INS <- dp_subset_for_late[which(dp_subset_for_late$gene %in% INS_genes)]
+dp_subset_for_early_INS <- dp_subset_for_early[which(dp_subset_for_early$gene %in% INS_genes)]
+dp_subset_mid_late_INS <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% INS_genes)]
+dp_subset_mid_early_INS <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% INS_genes)]
+#
+
+dm_subset_for_late_INS <- dm_subset_for_late[which(dm_subset_for_late$gene %in% INS_genes)]
+dm_subset_for_early_INS <- dm_subset_for_early[which(dm_subset_for_early$gene %in% INS_genes)]
+dm_subset_mid_late_INS <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% INS_genes)]
+dm_subset_mid_early_INS <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% INS_genes)]
+#
+
+dc_subset_for_late_INS <- dc_subset_for_late[which(dc_subset_for_late$gene %in% INS_genes)]
+dc_subset_for_early_INS <- dc_subset_for_early[which(dc_subset_for_early$gene %in% INS_genes)]
+dc_subset_mid_late_INS <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% INS_genes)]
+dc_subset_mid_early_INS <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% INS_genes)]
+#
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_INS <- ang.vec.alph(dp_subset_for_late_INS$estimate_log2, dp_subset_mid_late_INS$estimate_log2)
+
+dp_late_forVmid_random_INS <- t(replicate(10000,
+                                      RandomVectorSampler(
+                                        vec1 = dp_subset_for_late$estimate_log2,
+vec2 = dp_subset_mid_late$estimate_log2,
+sig_vec = dp_subset_for_late_INS$estimate_log2)))
+
+dp_late_forVmid_random_quants_INS <- quantile(dp_late_forVmid_random_INS[,1] , c(0.025,0.975))
+
+dp_late_forVmid_random_quants_INS_alpha <- quantile(dp_late_forVmid_random_INS[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_INS <- as.data.frame(t(c(VC_dp_late_forVmid_INS,dp_late_forVmid_random_quants_INS,dp_late_forVmid_random_quants_INS_alpha,"D. prolongata","Late")))
+
+
+dp_early_forVmid_INS <- ang.vec.alph(dp_subset_for_early_INS$estimate_log2, dp_subset_mid_early_INS$estimate_log2)
+
+
+dp_early_forVmid_random_INS <- t(replicate(10000,
+                                       RandomVectorSampler(
+                                         vec1 = dp_subset_for_early$estimate_log2,
+                                         vec2 = dp_subset_mid_early$estimate_log2,
+                                         sig_vec = dp_subset_for_early_INS$estimate_log2)))
+
+#hist(dp_early_forVmid_random_INS[,1], breaks = 50)
+
+dp_early_for_random_quants_INS <- quantile(dp_early_forVmid_random_INS[,1] , c(0.025,0.975))
+
+dp_early_for_random_quants_INS_alpha <- quantile(dp_early_forVmid_random_INS[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_INS <- as.data.frame(t(c(dp_early_forVmid_INS,dp_early_for_random_quants_INS,dp_early_for_random_quants_INS_alpha,"D. prolongata","Early")))
+#
+
+VC_dc_late_forVmid_INS <- ang.vec.alph(dc_subset_for_late_INS$estimate_log2, dc_subset_mid_late_INS$estimate_log2)
+
+dc_late_forVmid_random_INS <- t(replicate(10000,
+                                      RandomVectorSampler(
+                                        vec1 = dc_subset_for_late$estimate_log2,
+                                        vec2 = dc_subset_mid_late$estimate_log2,
+                                        sig_vec = dc_subset_for_late_INS$estimate_log2)))
+
+#hist(dc_late_forVmid_random_INS[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_INS <- quantile(dc_late_forVmid_random_INS[,1] , c(0.025,0.975))
+
+dc_late_forVmid_random_quants_INS_alpha <- quantile(dc_late_forVmid_random_INS[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_INS <- as.data.frame(t(c(VC_dc_late_forVmid_INS,dc_late_forVmid_random_quants_INS,dc_late_forVmid_random_quants_INS_alpha,"D. carrolli","Late")))
+#
+
+dc_early_forVmid_INS <- ang.vec.alph(dc_subset_for_early_INS$estimate_log2, dc_subset_mid_early_INS$estimate_log2)
+
+dc_early_forVmid_random_INS <- t(replicate(10000,
+                                       RandomVectorSampler(
+                                         vec1 = dc_subset_for_early$estimate_log2,
+                                         vec2 = dc_subset_mid_early$estimate_log2,
+                                         sig_vec = dc_subset_for_early_INS$estimate_log2)))
+
+#hist(dc_early_forVmid_random_INS[,1], breaks = 50)
+
+dc_early_for_random_quants_INS <- quantile(dc_early_forVmid_random_INS[,1] , c(0.025,0.975))
+
+dc_early_for_random_quants_INS_alpha <- quantile(dc_early_forVmid_random_INS[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_INS <- as.data.frame(t(c(dc_early_forVmid_INS,dc_early_for_random_quants_INS,dc_early_for_random_quants_INS_alpha,"D. carrolli","Early")))
+
+#
+
+VC_dm_late_forVmid_INS <- ang.vec.alph(dm_subset_for_late_INS$estimate_log2, dm_subset_mid_late_INS$estimate_log2)
+
+dm_late_forVmid_random_INS <- t(replicate(10000,
+                                      RandomVectorSampler(
+                                        vec1 = dm_subset_for_late$estimate_log2,
+                                        vec2 = dm_subset_mid_late$estimate_log2,
+                                        sig_vec = dm_subset_for_late_INS$estimate_log2)))
+
+#hist(dm_late_forVmid_random_INS[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_INS <- quantile(dm_late_forVmid_random_INS[,1] , c(0.025,0.975))
+
+dm_late_forVmid_random_quants_INS_alpha <- quantile(dm_late_forVmid_random_INS[,4] , c(0.025,0.975))
+
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_INS <- as.data.frame(t(c(VC_dm_late_forVmid_INS,dm_late_forVmid_random_quants_INS,dm_late_forVmid_random_quants_INS_alpha,"D. melanogaster","Late")))
+
+#
+
+dm_early_forVmid_INS <- ang.vec.alph(dm_subset_for_early_INS$estimate_log2, dm_subset_mid_early_INS$estimate_log2)
+
+dm_early_forVmid_random_INS <- t(replicate(10000,
+                                       RandomVectorSampler(
+                                         vec1 = dm_subset_for_early$estimate_log2,
+                                         vec2 = dm_subset_mid_early$estimate_log2,
+                                         sig_vec = dm_subset_for_early_INS$estimate_log2)))
+
+#hist(dm_early_forVmid_random_INS[,1], breaks = 50)
+
+dm_early_for_random_quants_INS <- quantile(dm_early_forVmid_random_INS[,1] , c(0.025,0.975))
+
+dm_early_for_random_quants_INS_alpha <- quantile(dm_early_forVmid_random_INS[,4] , c(0.025,0.975))
+
+
+#
+
+plotting_dm_early_for_INS <- as.data.frame(t(c(dm_early_forVmid_INS,dm_early_for_random_quants_INS,dm_early_for_random_quants_INS_alpha ,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_INS,plotting_VC_dp_early_forVmid_INS,plotting_VC_dc_late_forVmid_INS,plotting_dc_early_for_INS,plotting_VC_dm_late_forVmid_INS,plotting_dm_early_for_INS))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+INS_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+INS_Mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(INS_VC)/(INS_Mag)
+
+```
+
+Notch signalling
+
+```{r}
+
+NOTCH_genes <- pathway_ddat$Group_member_FB_gene_symbol[grep("NTCH",pathway_ddat$FB_group_symbol)]
+
+# get the subsetted data sets
+dp_subset_for_late_NOTCH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% NOTCH_genes)]
+dp_subset_for_early_NOTCH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% NOTCH_genes)]
+dp_subset_mid_late_NOTCH <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% NOTCH_genes)]
+dp_subset_mid_early_NOTCH <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% NOTCH_genes)]
+#
+
+dm_subset_for_late_NOTCH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% NOTCH_genes)]
+dm_subset_for_early_NOTCH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% NOTCH_genes)]
+dm_subset_mid_late_NOTCH <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% NOTCH_genes)]
+dm_subset_mid_early_NOTCH <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% NOTCH_genes)]
+#
+
+dc_subset_for_late_NOTCH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% NOTCH_genes)]
+dc_subset_for_early_NOTCH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% NOTCH_genes)]
+dc_subset_mid_late_NOTCH <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% NOTCH_genes)]
+dc_subset_mid_early_NOTCH <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% NOTCH_genes)]
+#
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_NOTCH <- ang.vec.alph(dp_subset_for_late_NOTCH$estimate_log2, dp_subset_mid_late_NOTCH$estimate_log2)
+
+dp_late_forVmid_random_NOTCH <- t(replicate(10000,
+                                      RandomVectorSampler(
+                                        vec1 = dp_subset_for_late$estimate_log2,
+vec2 = dp_subset_mid_late$estimate_log2,
+sig_vec = dp_subset_for_late_NOTCH$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random_NOTCH[,1], breaks = 50)
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants_NOTCH <- quantile(dp_late_forVmid_random_NOTCH[,1] , c(0.025,0.975))
+
+dp_late_forVmid_random_quants_NOTCH_alpha <- quantile(dp_late_forVmid_random_NOTCH[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_NOTCH <- as.data.frame(t(c(VC_dp_late_forVmid_NOTCH,dp_late_forVmid_random_quants_NOTCH,dp_late_forVmid_random_quants_NOTCH_alpha,"D. prolongata","Late")))
+
+
+dp_early_forVmid_NOTCH <- ang.vec.alph(dp_subset_for_early_NOTCH$estimate_log2, dp_subset_mid_early_NOTCH$estimate_log2)
+
+
+dp_early_forVmid_random_NOTCH <- t(replicate(10000,
+                                       RandomVectorSampler(
+                                         vec1 = dp_subset_for_early$estimate_log2,
+                                         vec2 = dp_subset_mid_early$estimate_log2,
+                                         sig_vec = dp_subset_for_early_NOTCH$estimate_log2)))
+
+#hist(dp_early_forVmid_random_NOTCH[,1], breaks = 50)
+
+dp_early_for_random_quants_NOTCH <- quantile(dp_early_forVmid_random_NOTCH[,1] , c(0.025,0.975))
+
+dp_early_for_random_quants_NOTCH_alpha <- quantile(dp_early_forVmid_random_NOTCH[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_NOTCH <- as.data.frame(t(c(dp_early_forVmid_NOTCH,dp_early_for_random_quants_NOTCH,dp_early_for_random_quants_NOTCH_alpha,"D. prolongata","Early")))
+#
+
+VC_dc_late_forVmid_NOTCH <- ang.vec.alph(dc_subset_for_late_NOTCH$estimate_log2, dc_subset_mid_late_NOTCH$estimate_log2)
+
+dc_late_forVmid_random_NOTCH <- t(replicate(10000,
+                                      RandomVectorSampler(
+                                        vec1 = dc_subset_for_late$estimate_log2,
+                                        vec2 = dc_subset_mid_late$estimate_log2,
+                                        sig_vec = dc_subset_for_late_NOTCH$estimate_log2)))
+
+#hist(dc_late_forVmid_random_NOTCH[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_NOTCH <- quantile(dc_late_forVmid_random_NOTCH[,1] , c(0.025,0.975))
+
+dc_late_forVmid_random_quants_NOTCH_alpha <- quantile(dc_late_forVmid_random_NOTCH[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_NOTCH <- as.data.frame(t(c(VC_dc_late_forVmid_NOTCH,dc_late_forVmid_random_quants_NOTCH,dc_late_forVmid_random_quants_NOTCH_alpha,"D. carrolli","Late")))
+#
+
+dc_early_forVmid_NOTCH <- ang.vec.alph(dc_subset_for_early_NOTCH$estimate_log2, dc_subset_mid_early_NOTCH$estimate_log2)
+
+dc_early_forVmid_random_NOTCH <- t(replicate(10000,
+                                       RandomVectorSampler(
+                                         vec1 = dc_subset_for_early$estimate_log2,
+                                         vec2 = dc_subset_mid_early$estimate_log2,
+                                         sig_vec = dc_subset_for_early_NOTCH$estimate_log2)))
+
+#hist(dc_early_forVmid_random_NOTCH[,1], breaks = 50)
+
+dc_early_for_random_quants_NOTCH <- quantile(dc_early_forVmid_random_NOTCH[,1] , c(0.025,0.975))
+
+dc_early_for_random_quants_NOTCH_alpha <- quantile(dc_early_forVmid_random_NOTCH[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_NOTCH <- as.data.frame(t(c(dc_early_forVmid_NOTCH,dc_early_for_random_quants_NOTCH,dc_early_for_random_quants_NOTCH_alpha,"D. carrolli","Early")))
+
+#
+
+VC_dm_late_forVmid_NOTCH <- ang.vec.alph(dm_subset_for_late_NOTCH$estimate_log2, dm_subset_mid_late_NOTCH$estimate_log2)
+
+dm_late_forVmid_random_NOTCH <- t(replicate(10000,
+                                      RandomVectorSampler(
+                                        vec1 = dm_subset_for_late$estimate_log2,
+                                        vec2 = dm_subset_mid_late$estimate_log2,
+                                        sig_vec = dm_subset_for_late_NOTCH$estimate_log2)))
+
+#hist(dm_late_forVmid_random_NOTCH[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_NOTCH <- quantile(dm_late_forVmid_random_NOTCH[,1] , c(0.025,0.975))
+
+dm_late_forVmid_random_quants_NOTCH_alpha <- quantile(dm_late_forVmid_random_NOTCH[,4] , c(0.025,0.975))
+
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_NOTCH <- as.data.frame(t(c(VC_dm_late_forVmid_NOTCH,dm_late_forVmid_random_quants_NOTCH,dm_late_forVmid_random_quants_NOTCH_alpha,"D. melanogaster","Late")))
+
+#
+
+dm_early_forVmid_NOTCH <- ang.vec.alph(dm_subset_for_early_NOTCH$estimate_log2, dm_subset_mid_early_NOTCH$estimate_log2)
+
+dm_early_forVmid_random_NOTCH <- t(replicate(10000,
+                                       RandomVectorSampler(
+                                         vec1 = dm_subset_for_early$estimate_log2,
+                                         vec2 = dm_subset_mid_early$estimate_log2,
+                                         sig_vec = dm_subset_for_early_NOTCH$estimate_log2)))
+
+#hist(dm_early_forVmid_random_NOTCH[,1], breaks = 50)
+
+dm_early_for_random_quants_NOTCH <- quantile(dm_early_forVmid_random_NOTCH[,1] , c(0.025,0.975))
+
+dm_early_for_random_quants_NOTCH_alpha <- quantile(dm_early_forVmid_random_NOTCH[,4] , c(0.025,0.975))
+
+
+#
+
+plotting_dm_early_for_NOTCH <- as.data.frame(t(c(dm_early_forVmid_NOTCH,dm_early_for_random_quants_NOTCH,dm_early_for_random_quants_NOTCH_alpha ,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_NOTCH,plotting_VC_dp_early_forVmid_NOTCH,plotting_VC_dc_late_forVmid_NOTCH,plotting_dc_early_for_NOTCH,plotting_VC_dm_late_forVmid_NOTCH,plotting_dm_early_for_NOTCH))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+NOTCH_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+NOTCH_Mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(NOTCH_VC)/(NOTCH_Mag)
+
+
+```
+
+EGFR signalling pathway genes in the foreleg vs. midleg at each stage for all species
+
+```{r}
+EGFR_genes <- pathway_ddat$Group_member_FB_gene_symbol[grep("EGFR",pathway_ddat$FB_group_symbol)]
+
+# get the subsetted data sets
+dp_subset_for_late_EGFR <- dp_subset_for_late[which(dp_subset_for_late$gene %in% EGFR_genes)]
+dp_subset_for_early_EGFR <- dp_subset_for_early[which(dp_subset_for_early$gene %in% EGFR_genes)]
+dp_subset_mid_late_EGFR <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% EGFR_genes)]
+dp_subset_mid_early_EGFR <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% EGFR_genes)]
+#
+
+dm_subset_for_late_EGFR <- dm_subset_for_late[which(dm_subset_for_late$gene %in% EGFR_genes)]
+dm_subset_for_early_EGFR <- dm_subset_for_early[which(dm_subset_for_early$gene %in% EGFR_genes)]
+dm_subset_mid_late_EGFR <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% EGFR_genes)]
+dm_subset_mid_early_EGFR <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% EGFR_genes)]
+#
+
+dc_subset_for_late_EGFR <- dc_subset_for_late[which(dc_subset_for_late$gene %in% EGFR_genes)]
+dc_subset_for_early_EGFR <- dc_subset_for_early[which(dc_subset_for_early$gene %in% EGFR_genes)]
+dc_subset_mid_late_EGFR <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% EGFR_genes)]
+dc_subset_mid_early_EGFR <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% EGFR_genes)]
+#
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_EGFR <- ang.vec.alph(dp_subset_for_late_EGFR$estimate_log2, dp_subset_mid_late_EGFR$estimate_log2)
+
+dp_late_forVmid_random_EGFR <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dp_subset_for_late$estimate_log2,
+                                            vec2 = dp_subset_mid_late$estimate_log2,
+                                            sig_vec = dp_subset_for_late_EGFR$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random_EGFR[,1], breaks = 50)
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants_EGFR <- quantile(dp_late_forVmid_random_EGFR[,1] , c(0.025,0.975))
+
+dp_late_forVmid_random_quants_EGFR_alpha <- quantile(dp_late_forVmid_random_EGFR[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_EGFR <- as.data.frame(t(c(VC_dp_late_forVmid_EGFR,dp_late_forVmid_random_quants_EGFR,dp_late_forVmid_random_quants_EGFR_alpha,"D. prolongata","Late")))
+
+
+dp_early_forVmid_EGFR <- ang.vec.alph(dp_subset_for_early_EGFR$estimate_log2, dp_subset_mid_early_EGFR$estimate_log2)
+
+
+dp_early_forVmid_random_EGFR <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dp_subset_for_early$estimate_log2,
+                                             vec2 = dp_subset_mid_early$estimate_log2,
+                                             sig_vec = dp_subset_for_early_EGFR$estimate_log2)))
+
+#hist(dp_early_forVmid_random_EGFR[,1], breaks = 50)
+
+dp_early_for_random_quants_EGFR <- quantile(dp_early_forVmid_random_EGFR[,1] , c(0.025,0.975))
+
+dp_early_for_random_quants_EGFR_alpha <- quantile(dp_early_forVmid_random_EGFR[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_EGFR <- as.data.frame(t(c(dp_early_forVmid_EGFR,dp_early_for_random_quants_EGFR,dp_early_for_random_quants_EGFR_alpha,"D. prolongata","Early")))
+#
+
+VC_dc_late_forVmid_EGFR <- ang.vec.alph(dc_subset_for_late_EGFR$estimate_log2, dc_subset_mid_late_EGFR$estimate_log2)
+
+dc_late_forVmid_random_EGFR <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dc_subset_for_late$estimate_log2,
+                                            vec2 = dc_subset_mid_late$estimate_log2,
+                                            sig_vec = dc_subset_for_late_EGFR$estimate_log2)))
+
+#hist(dc_late_forVmid_random_EGFR[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_EGFR <- quantile(dc_late_forVmid_random_EGFR[,1] , c(0.025,0.975))
+
+dc_late_forVmid_random_quants_EGFR_alpha <- quantile(dc_late_forVmid_random_EGFR[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_EGFR <- as.data.frame(t(c(VC_dc_late_forVmid_EGFR,dc_late_forVmid_random_quants_EGFR,dc_late_forVmid_random_quants_EGFR_alpha,"D. carrolli","Late")))
+#
+
+dc_early_forVmid_EGFR <- ang.vec.alph(dc_subset_for_early_EGFR$estimate_log2, dc_subset_mid_early_EGFR$estimate_log2)
+
+dc_early_forVmid_random_EGFR <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dc_subset_for_early$estimate_log2,
+                                             vec2 = dc_subset_mid_early$estimate_log2,
+                                             sig_vec = dc_subset_for_early_EGFR$estimate_log2)))
+
+#hist(dc_early_forVmid_random_EGFR[,1], breaks = 50)
+
+dc_early_for_random_quants_EGFR <- quantile(dc_early_forVmid_random_EGFR[,1] , c(0.025,0.975))
+
+dc_early_for_random_quants_EGFR_alpha <- quantile(dc_early_forVmid_random_EGFR[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_EGFR <- as.data.frame(t(c(dc_early_forVmid_EGFR,dc_early_for_random_quants_EGFR,dc_early_for_random_quants_EGFR_alpha,"D. carrolli","Early")))
+
+#
+
+VC_dm_late_forVmid_EGFR <- ang.vec.alph(dm_subset_for_late_EGFR$estimate_log2, dm_subset_mid_late_EGFR$estimate_log2)
+
+dm_late_forVmid_random_EGFR <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dm_subset_for_late$estimate_log2,
+                                            vec2 = dm_subset_mid_late$estimate_log2,
+                                            sig_vec = dm_subset_for_late_EGFR$estimate_log2)))
+
+#hist(dm_late_forVmid_random_EGFR[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_EGFR <- quantile(dm_late_forVmid_random_EGFR[,1] , c(0.025,0.975))
+
+dm_late_forVmid_random_quants_EGFR_alpha <- quantile(dm_late_forVmid_random_EGFR[,4] , c(0.025,0.975))
+
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_EGFR <- as.data.frame(t(c(VC_dm_late_forVmid_EGFR,dm_late_forVmid_random_quants_EGFR,dm_late_forVmid_random_quants_EGFR_alpha,"D. melanogaster","Late")))
+
+#
+
+dm_early_forVmid_EGFR <- ang.vec.alph(dm_subset_for_early_EGFR$estimate_log2, dm_subset_mid_early_EGFR$estimate_log2)
+
+dm_early_forVmid_random_EGFR <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dm_subset_for_early$estimate_log2,
+                                             vec2 = dm_subset_mid_early$estimate_log2,
+                                             sig_vec = dm_subset_for_early_EGFR$estimate_log2)))
+
+#hist(dm_early_forVmid_random_EGFR[,1], breaks = 50)
+
+dm_early_for_random_quants_EGFR <- quantile(dm_early_forVmid_random_EGFR[,1] , c(0.025,0.975))
+
+dm_early_for_random_quants_EGFR_alpha <- quantile(dm_early_forVmid_random_EGFR[,4] , c(0.025,0.975))
+
+
+#
+
+plotting_dm_early_for_EGFR <- as.data.frame(t(c(dm_early_forVmid_EGFR,dm_early_for_random_quants_EGFR,dm_early_for_random_quants_EGFR_alpha ,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_EGFR,plotting_VC_dp_early_forVmid_EGFR,plotting_VC_dc_late_forVmid_EGFR,plotting_dc_early_for_EGFR,plotting_VC_dm_late_forVmid_EGFR,plotting_dm_early_for_EGFR))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+EGFR_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+EGFR_Mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+
+(EGFR_VC)/(EGFR_Mag)
+
+```
+
+Hippo signalling pathway genes in the foreleg vs. midleg at each stage for all species
+
+```{r}
+SWH_genes <- pathway_ddat$Group_member_FB_gene_symbol[grep("SWH",pathway_ddat$FB_group_symbol)]
+
+# get the subsetted data sets
+dp_subset_for_late_SWH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% SWH_genes)]
+dp_subset_for_early_SWH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% SWH_genes)]
+dp_subset_mid_late_SWH <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% SWH_genes)]
+dp_subset_mid_early_SWH <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% SWH_genes)]
+#
+
+dm_subset_for_late_SWH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% SWH_genes)]
+dm_subset_for_early_SWH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% SWH_genes)]
+dm_subset_mid_late_SWH <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% SWH_genes)]
+dm_subset_mid_early_SWH <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% SWH_genes)]
+#
+
+dc_subset_for_late_SWH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% SWH_genes)]
+dc_subset_for_early_SWH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% SWH_genes)]
+dc_subset_mid_late_SWH <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% SWH_genes)]
+dc_subset_mid_early_SWH <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% SWH_genes)]
+#
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_SWH <- ang.vec.alph(dp_subset_for_late_SWH$estimate_log2, dp_subset_mid_late_SWH$estimate_log2)
+
+dp_late_forVmid_random_SWH <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dp_subset_for_late$estimate_log2,
+                                            vec2 = dp_subset_mid_late$estimate_log2,
+                                            sig_vec = dp_subset_for_late_SWH$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random_SWH[,1], breaks = 50)
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants_SWH <- quantile(dp_late_forVmid_random_SWH[,1] , c(0.025,0.975))
+
+dp_late_forVmid_random_quants_SWH_alpha <- quantile(dp_late_forVmid_random_SWH[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_SWH <- as.data.frame(t(c(VC_dp_late_forVmid_SWH,dp_late_forVmid_random_quants_SWH,dp_late_forVmid_random_quants_SWH_alpha,"D. prolongata","Late")))
+
+
+dp_early_forVmid_SWH <- ang.vec.alph(dp_subset_for_early_SWH$estimate_log2, dp_subset_mid_early_SWH$estimate_log2)
+
+
+dp_early_forVmid_random_SWH <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dp_subset_for_early$estimate_log2,
+                                             vec2 = dp_subset_mid_early$estimate_log2,
+                                             sig_vec = dp_subset_for_early_SWH$estimate_log2)))
+
+#hist(dp_early_forVmid_random_SWH[,1], breaks = 50)
+
+dp_early_for_random_quants_SWH <- quantile(dp_early_forVmid_random_SWH[,1] , c(0.025,0.975))
+
+dp_early_for_random_quants_SWH_alpha <- quantile(dp_early_forVmid_random_SWH[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_SWH <- as.data.frame(t(c(dp_early_forVmid_SWH,dp_early_for_random_quants_SWH,dp_early_for_random_quants_SWH_alpha,"D. prolongata","Early")))
+#
+
+VC_dc_late_forVmid_SWH <- ang.vec.alph(dc_subset_for_late_SWH$estimate_log2, dc_subset_mid_late_SWH$estimate_log2)
+
+dc_late_forVmid_random_SWH <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dc_subset_for_late$estimate_log2,
+                                            vec2 = dc_subset_mid_late$estimate_log2,
+                                            sig_vec = dc_subset_for_late_SWH$estimate_log2)))
+
+#hist(dc_late_forVmid_random_SWH[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_SWH <- quantile(dc_late_forVmid_random_SWH[,1] , c(0.025,0.975))
+
+dc_late_forVmid_random_quants_SWH_alpha <- quantile(dc_late_forVmid_random_SWH[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_SWH <- as.data.frame(t(c(VC_dc_late_forVmid_SWH,dc_late_forVmid_random_quants_SWH,dc_late_forVmid_random_quants_SWH_alpha,"D. carrolli","Late")))
+#
+
+dc_early_forVmid_SWH <- ang.vec.alph(dc_subset_for_early_SWH$estimate_log2, dc_subset_mid_early_SWH$estimate_log2)
+
+dc_early_forVmid_random_SWH <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dc_subset_for_early$estimate_log2,
+                                             vec2 = dc_subset_mid_early$estimate_log2,
+                                             sig_vec = dc_subset_for_early_SWH$estimate_log2)))
+
+#hist(dc_early_forVmid_random_SWH[,1], breaks = 50)
+
+dc_early_for_random_quants_SWH <- quantile(dc_early_forVmid_random_SWH[,1] , c(0.025,0.975))
+
+dc_early_for_random_quants_SWH_alpha <- quantile(dc_early_forVmid_random_SWH[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_SWH <- as.data.frame(t(c(dc_early_forVmid_SWH,dc_early_for_random_quants_SWH,dc_early_for_random_quants_SWH_alpha,"D. carrolli","Early")))
+
+#
+
+VC_dm_late_forVmid_SWH <- ang.vec.alph(dm_subset_for_late_SWH$estimate_log2, dm_subset_mid_late_SWH$estimate_log2)
+
+dm_late_forVmid_random_SWH <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dm_subset_for_late$estimate_log2,
+                                            vec2 = dm_subset_mid_late$estimate_log2,
+                                            sig_vec = dm_subset_for_late_SWH$estimate_log2)))
+
+#hist(dm_late_forVmid_random_SWH[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_SWH <- quantile(dm_late_forVmid_random_SWH[,1] , c(0.025,0.975))
+
+dm_late_forVmid_random_quants_SWH_alpha <- quantile(dm_late_forVmid_random_SWH[,4] , c(0.025,0.975))
+
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_SWH <- as.data.frame(t(c(VC_dm_late_forVmid_SWH,dm_late_forVmid_random_quants_SWH,dm_late_forVmid_random_quants_SWH_alpha,"D. melanogaster","Late")))
+
+#
+
+dm_early_forVmid_SWH <- ang.vec.alph(dm_subset_for_early_SWH$estimate_log2, dm_subset_mid_early_SWH$estimate_log2)
+
+dm_early_forVmid_random_SWH <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dm_subset_for_early$estimate_log2,
+                                             vec2 = dm_subset_mid_early$estimate_log2,
+                                             sig_vec = dm_subset_for_early_SWH$estimate_log2)))
+
+#hist(dm_early_forVmid_random_SWH[,1], breaks = 50)
+
+dm_early_for_random_quants_SWH <- quantile(dm_early_forVmid_random_SWH[,1] , c(0.025,0.975))
+
+dm_early_for_random_quants_SWH_alpha <- quantile(dm_early_forVmid_random_SWH[,4] , c(0.025,0.975))
+
+
+#
+
+plotting_dm_early_for_SWH <- as.data.frame(t(c(dm_early_forVmid_SWH,dm_early_for_random_quants_SWH,dm_early_for_random_quants_SWH_alpha ,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_SWH,plotting_VC_dp_early_forVmid_SWH,plotting_VC_dc_late_forVmid_SWH,plotting_dc_early_for_SWH,plotting_VC_dm_late_forVmid_SWH,plotting_dm_early_for_SWH))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+hippo_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+
+hippo_Mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+
+(hippo_VC)/(hippo_Mag)
+
+```
+
+WNT signalling pathway genes in the foreleg vs. midleg at each stage for all species
+
+```{r}
+WNT_genes <- pathway_ddat$Group_member_FB_gene_symbol[grep("WNT",pathway_ddat$FB_group_symbol)]
+
+# get the subsetted data sets
+dp_subset_for_late_WNT <- dp_subset_for_late[which(dp_subset_for_late$gene %in% WNT_genes)]
+dp_subset_for_early_WNT <- dp_subset_for_early[which(dp_subset_for_early$gene %in% WNT_genes)]
+dp_subset_mid_late_WNT <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% WNT_genes)]
+dp_subset_mid_early_WNT <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% WNT_genes)]
+#
+
+dm_subset_for_late_WNT <- dm_subset_for_late[which(dm_subset_for_late$gene %in% WNT_genes)]
+dm_subset_for_early_WNT <- dm_subset_for_early[which(dm_subset_for_early$gene %in% WNT_genes)]
+dm_subset_mid_late_WNT <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% WNT_genes)]
+dm_subset_mid_early_WNT <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% WNT_genes)]
+#
+
+dc_subset_for_late_WNT <- dc_subset_for_late[which(dc_subset_for_late$gene %in% WNT_genes)]
+dc_subset_for_early_WNT <- dc_subset_for_early[which(dc_subset_for_early$gene %in% WNT_genes)]
+dc_subset_mid_late_WNT <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% WNT_genes)]
+dc_subset_mid_early_WNT <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% WNT_genes)]
+#
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_WNT <- ang.vec.alph(dp_subset_for_late_WNT$estimate_log2, dp_subset_mid_late_WNT$estimate_log2)
+
+dp_late_forVmid_random_WNT <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dp_subset_for_late$estimate_log2,
+                                            vec2 = dp_subset_mid_late$estimate_log2,
+                                            sig_vec = dp_subset_for_late_WNT$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random_WNT[,1], breaks = 50)
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants_WNT <- quantile(dp_late_forVmid_random_WNT[,1] , c(0.025,0.975))
+
+dp_late_forVmid_random_quants_WNT_alpha <- quantile(dp_late_forVmid_random_WNT[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_WNT <- as.data.frame(t(c(VC_dp_late_forVmid_WNT,dp_late_forVmid_random_quants_WNT,dp_late_forVmid_random_quants_WNT_alpha,"D. prolongata","Late")))
+
+
+dp_early_forVmid_WNT <- ang.vec.alph(dp_subset_for_early_WNT$estimate_log2, dp_subset_mid_early_WNT$estimate_log2)
+
+
+dp_early_forVmid_random_WNT <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dp_subset_for_early$estimate_log2,
+                                             vec2 = dp_subset_mid_early$estimate_log2,
+                                             sig_vec = dp_subset_for_early_WNT$estimate_log2)))
+
+#hist(dp_early_forVmid_random_WNT[,1], breaks = 50)
+
+dp_early_for_random_quants_WNT <- quantile(dp_early_forVmid_random_WNT[,1] , c(0.025,0.975))
+
+dp_early_for_random_quants_WNT_alpha <- quantile(dp_early_forVmid_random_WNT[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_WNT <- as.data.frame(t(c(dp_early_forVmid_WNT,dp_early_for_random_quants_WNT,dp_early_for_random_quants_WNT_alpha,"D. prolongata","Early")))
+#
+
+VC_dc_late_forVmid_WNT <- ang.vec.alph(dc_subset_for_late_WNT$estimate_log2, dc_subset_mid_late_WNT$estimate_log2)
+
+dc_late_forVmid_random_WNT <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dc_subset_for_late$estimate_log2,
+                                            vec2 = dc_subset_mid_late$estimate_log2,
+                                            sig_vec = dc_subset_for_late_WNT$estimate_log2)))
+
+#hist(dc_late_forVmid_random_WNT[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_WNT <- quantile(dc_late_forVmid_random_WNT[,1] , c(0.025,0.975))
+
+dc_late_forVmid_random_quants_WNT_alpha <- quantile(dc_late_forVmid_random_WNT[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_WNT <- as.data.frame(t(c(VC_dc_late_forVmid_WNT,dc_late_forVmid_random_quants_WNT,dc_late_forVmid_random_quants_WNT_alpha,"D. carrolli","Late")))
+#
+
+dc_early_forVmid_WNT <- ang.vec.alph(dc_subset_for_early_WNT$estimate_log2, dc_subset_mid_early_WNT$estimate_log2)
+
+dc_early_forVmid_random_WNT <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dc_subset_for_early$estimate_log2,
+                                             vec2 = dc_subset_mid_early$estimate_log2,
+                                             sig_vec = dc_subset_for_early_WNT$estimate_log2)))
+
+#hist(dc_early_forVmid_random_WNT[,1], breaks = 50)
+
+dc_early_for_random_quants_WNT <- quantile(dc_early_forVmid_random_WNT[,1] , c(0.025,0.975))
+
+dc_early_for_random_quants_WNT_alpha <- quantile(dc_early_forVmid_random_WNT[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_WNT <- as.data.frame(t(c(dc_early_forVmid_WNT,dc_early_for_random_quants_WNT,dc_early_for_random_quants_WNT_alpha,"D. carrolli","Early")))
+
+#
+
+VC_dm_late_forVmid_WNT <- ang.vec.alph(dm_subset_for_late_WNT$estimate_log2, dm_subset_mid_late_WNT$estimate_log2)
+
+dm_late_forVmid_random_WNT <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dm_subset_for_late$estimate_log2,
+                                            vec2 = dm_subset_mid_late$estimate_log2,
+                                            sig_vec = dm_subset_for_late_WNT$estimate_log2)))
+
+#hist(dm_late_forVmid_random_WNT[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_WNT <- quantile(dm_late_forVmid_random_WNT[,1] , c(0.025,0.975))
+
+dm_late_forVmid_random_quants_WNT_alpha <- quantile(dm_late_forVmid_random_WNT[,4] , c(0.025,0.975))
+
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_WNT <- as.data.frame(t(c(VC_dm_late_forVmid_WNT,dm_late_forVmid_random_quants_WNT,dm_late_forVmid_random_quants_WNT_alpha,"D. melanogaster","Late")))
+
+#
+
+dm_early_forVmid_WNT <- ang.vec.alph(dm_subset_for_early_WNT$estimate_log2, dm_subset_mid_early_WNT$estimate_log2)
+
+dm_early_forVmid_random_WNT <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dm_subset_for_early$estimate_log2,
+                                             vec2 = dm_subset_mid_early$estimate_log2,
+                                             sig_vec = dm_subset_for_early_WNT$estimate_log2)))
+
+#hist(dm_early_forVmid_random_WNT[,1], breaks = 50)
+
+dm_early_for_random_quants_WNT <- quantile(dm_early_forVmid_random_WNT[,1] , c(0.025,0.975))
+
+dm_early_for_random_quants_WNT_alpha <- quantile(dm_early_forVmid_random_WNT[,4] , c(0.025,0.975))
+
+
+#
+
+plotting_dm_early_for_WNT <- as.data.frame(t(c(dm_early_forVmid_WNT,dm_early_for_random_quants_WNT,dm_early_for_random_quants_WNT_alpha ,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_WNT,plotting_VC_dp_early_forVmid_WNT,plotting_VC_dc_late_forVmid_WNT,plotting_dc_early_for_WNT,plotting_VC_dm_late_forVmid_WNT,plotting_dm_early_for_WNT))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+WNT_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+
+WNT_Mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(WNT_VC)/(WNT_Mag)
+
+```
+
+BMP signalling pathway genes in the foreleg vs. midleg at each stage for all species
+
+```{r}
+BMP_genes <- pathway_ddat$Group_member_FB_gene_symbol[grep("BMP",pathway_ddat$FB_group_symbol)]
+
+# get the subsetted data sets
+dp_subset_for_late_BMP <- dp_subset_for_late[which(dp_subset_for_late$gene %in% BMP_genes)]
+dp_subset_for_early_BMP <- dp_subset_for_early[which(dp_subset_for_early$gene %in% BMP_genes)]
+dp_subset_mid_late_BMP <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% BMP_genes)]
+dp_subset_mid_early_BMP <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% BMP_genes)]
+#
+
+dm_subset_for_late_BMP <- dm_subset_for_late[which(dm_subset_for_late$gene %in% BMP_genes)]
+dm_subset_for_early_BMP <- dm_subset_for_early[which(dm_subset_for_early$gene %in% BMP_genes)]
+dm_subset_mid_late_BMP <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% BMP_genes)]
+dm_subset_mid_early_BMP <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% BMP_genes)]
+#
+
+dc_subset_for_late_BMP <- dc_subset_for_late[which(dc_subset_for_late$gene %in% BMP_genes)]
+dc_subset_for_early_BMP <- dc_subset_for_early[which(dc_subset_for_early$gene %in% BMP_genes)]
+dc_subset_mid_late_BMP <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% BMP_genes)]
+dc_subset_mid_early_BMP <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% BMP_genes)]
+#
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_BMP <- ang.vec.alph(dp_subset_for_late_BMP$estimate_log2, dp_subset_mid_late_BMP$estimate_log2)
+
+dp_late_forVmid_random_BMP <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dp_subset_for_late$estimate_log2,
+                                            vec2 = dp_subset_mid_late$estimate_log2,
+                                            sig_vec = dp_subset_for_late_BMP$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random_BMP[,1], breaks = 50)
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants_BMP <- quantile(dp_late_forVmid_random_BMP[,1] , c(0.025,0.975))
+
+dp_late_forVmid_random_quants_BMP_alpha <- quantile(dp_late_forVmid_random_BMP[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_BMP <- as.data.frame(t(c(VC_dp_late_forVmid_BMP,dp_late_forVmid_random_quants_BMP,dp_late_forVmid_random_quants_BMP_alpha,"D. prolongata","Late")))
+
+
+dp_early_forVmid_BMP <- ang.vec.alph(dp_subset_for_early_BMP$estimate_log2, dp_subset_mid_early_BMP$estimate_log2)
+
+
+dp_early_forVmid_random_BMP <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dp_subset_for_early$estimate_log2,
+                                             vec2 = dp_subset_mid_early$estimate_log2,
+                                             sig_vec = dp_subset_for_early_BMP$estimate_log2)))
+
+#hist(dp_early_forVmid_random_BMP[,1], breaks = 50)
+
+dp_early_for_random_quants_BMP <- quantile(dp_early_forVmid_random_BMP[,1] , c(0.025,0.975))
+
+dp_early_for_random_quants_BMP_alpha <- quantile(dp_early_forVmid_random_BMP[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_BMP <- as.data.frame(t(c(dp_early_forVmid_BMP,dp_early_for_random_quants_BMP,dp_early_for_random_quants_BMP_alpha,"D. prolongata","Early")))
+#
+
+VC_dc_late_forVmid_BMP <- ang.vec.alph(dc_subset_for_late_BMP$estimate_log2, dc_subset_mid_late_BMP$estimate_log2)
+
+dc_late_forVmid_random_BMP <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dc_subset_for_late$estimate_log2,
+                                            vec2 = dc_subset_mid_late$estimate_log2,
+                                            sig_vec = dc_subset_for_late_BMP$estimate_log2)))
+
+#hist(dc_late_forVmid_random_BMP[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_BMP <- quantile(dc_late_forVmid_random_BMP[,1] , c(0.025,0.975))
+
+dc_late_forVmid_random_quants_BMP_alpha <- quantile(dc_late_forVmid_random_BMP[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_BMP <- as.data.frame(t(c(VC_dc_late_forVmid_BMP,dc_late_forVmid_random_quants_BMP,dc_late_forVmid_random_quants_BMP_alpha,"D. carrolli","Late")))
+#
+
+dc_early_forVmid_BMP <- ang.vec.alph(dc_subset_for_early_BMP$estimate_log2, dc_subset_mid_early_BMP$estimate_log2)
+
+dc_early_forVmid_random_BMP <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dc_subset_for_early$estimate_log2,
+                                             vec2 = dc_subset_mid_early$estimate_log2,
+                                             sig_vec = dc_subset_for_early_BMP$estimate_log2)))
+
+#hist(dc_early_forVmid_random_BMP[,1], breaks = 50)
+
+dc_early_for_random_quants_BMP <- quantile(dc_early_forVmid_random_BMP[,1] , c(0.025,0.975))
+
+dc_early_for_random_quants_BMP_alpha <- quantile(dc_early_forVmid_random_BMP[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_BMP <- as.data.frame(t(c(dc_early_forVmid_BMP,dc_early_for_random_quants_BMP,dc_early_for_random_quants_BMP_alpha,"D. carrolli","Early")))
+
+#
+
+VC_dm_late_forVmid_BMP <- ang.vec.alph(dm_subset_for_late_BMP$estimate_log2, dm_subset_mid_late_BMP$estimate_log2)
+
+dm_late_forVmid_random_BMP <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dm_subset_for_late$estimate_log2,
+                                            vec2 = dm_subset_mid_late$estimate_log2,
+                                            sig_vec = dm_subset_for_late_BMP$estimate_log2)))
+
+#hist(dm_late_forVmid_random_BMP[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_BMP <- quantile(dm_late_forVmid_random_BMP[,1] , c(0.025,0.975))
+
+dm_late_forVmid_random_quants_BMP_alpha <- quantile(dm_late_forVmid_random_BMP[,4] , c(0.025,0.975))
+
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_BMP <- as.data.frame(t(c(VC_dm_late_forVmid_BMP,dm_late_forVmid_random_quants_BMP,dm_late_forVmid_random_quants_BMP_alpha,"D. melanogaster","Late")))
+
+#
+
+dm_early_forVmid_BMP <- ang.vec.alph(dm_subset_for_early_BMP$estimate_log2, dm_subset_mid_early_BMP$estimate_log2)
+
+dm_early_forVmid_random_BMP <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dm_subset_for_early$estimate_log2,
+                                             vec2 = dm_subset_mid_early$estimate_log2,
+                                             sig_vec = dm_subset_for_early_BMP$estimate_log2)))
+
+#hist(dm_early_forVmid_random_BMP[,1], breaks = 50)
+
+dm_early_for_random_quants_BMP <- quantile(dm_early_forVmid_random_BMP[,1] , c(0.025,0.975))
+
+dm_early_for_random_quants_BMP_alpha <- quantile(dm_early_forVmid_random_BMP[,4] , c(0.025,0.975))
+
+
+#
+
+plotting_dm_early_for_BMP <- as.data.frame(t(c(dm_early_forVmid_BMP,dm_early_for_random_quants_BMP,dm_early_for_random_quants_BMP_alpha ,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_BMP,plotting_VC_dp_early_forVmid_BMP,plotting_VC_dc_late_forVmid_BMP,plotting_dc_early_for_BMP,plotting_VC_dm_late_forVmid_BMP,plotting_dm_early_for_BMP))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+BMP_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+
+BMP_Mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(BMP_VC)/(BMP_Mag)
+
+```
+
+HH signalling pathway genes in the foreleg vs. midleg at each stage for all species
+
+```{r}
+HH_genes <- pathway_ddat$Group_member_FB_gene_symbol[grep("HH",pathway_ddat$FB_group_symbol)]
+
+# get the subsetted data sets
+dp_subset_for_late_HH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% HH_genes)]
+dp_subset_for_early_HH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% HH_genes)]
+dp_subset_mid_late_HH <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% HH_genes)]
+dp_subset_mid_early_HH <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% HH_genes)]
+#
+
+dm_subset_for_late_HH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% HH_genes)]
+dm_subset_for_early_HH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% HH_genes)]
+dm_subset_mid_late_HH <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% HH_genes)]
+dm_subset_mid_early_HH <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% HH_genes)]
+#
+
+dc_subset_for_late_HH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% HH_genes)]
+dc_subset_for_early_HH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% HH_genes)]
+dc_subset_mid_late_HH <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% HH_genes)]
+dc_subset_mid_early_HH <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% HH_genes)]
+#
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_HH <- ang.vec.alph(dp_subset_for_late_HH$estimate_log2, dp_subset_mid_late_HH$estimate_log2)
+
+dp_late_forVmid_random_HH <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dp_subset_for_late$estimate_log2,
+                                            vec2 = dp_subset_mid_late$estimate_log2,
+                                            sig_vec = dp_subset_for_late_HH$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random_HH[,1], breaks = 50)
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants_HH <- quantile(dp_late_forVmid_random_HH[,1] , c(0.025,0.975))
+
+dp_late_forVmid_random_quants_HH_alpha <- quantile(dp_late_forVmid_random_HH[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_HH <- as.data.frame(t(c(VC_dp_late_forVmid_HH,dp_late_forVmid_random_quants_HH,dp_late_forVmid_random_quants_HH_alpha,"D. prolongata","Late")))
+
+
+dp_early_forVmid_HH <- ang.vec.alph(dp_subset_for_early_HH$estimate_log2, dp_subset_mid_early_HH$estimate_log2)
+
+
+dp_early_forVmid_random_HH <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dp_subset_for_early$estimate_log2,
+                                             vec2 = dp_subset_mid_early$estimate_log2,
+                                             sig_vec = dp_subset_for_early_HH$estimate_log2)))
+
+#hist(dp_early_forVmid_random_HH[,1], breaks = 50)
+
+dp_early_for_random_quants_HH <- quantile(dp_early_forVmid_random_HH[,1] , c(0.025,0.975))
+
+dp_early_for_random_quants_HH_alpha <- quantile(dp_early_forVmid_random_HH[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_HH <- as.data.frame(t(c(dp_early_forVmid_HH,dp_early_for_random_quants_HH,dp_early_for_random_quants_HH_alpha,"D. prolongata","Early")))
+#
+
+VC_dc_late_forVmid_HH <- ang.vec.alph(dc_subset_for_late_HH$estimate_log2, dc_subset_mid_late_HH$estimate_log2)
+
+dc_late_forVmid_random_HH <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dc_subset_for_late$estimate_log2,
+                                            vec2 = dc_subset_mid_late$estimate_log2,
+                                            sig_vec = dc_subset_for_late_HH$estimate_log2)))
+
+#hist(dc_late_forVmid_random_HH[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_HH <- quantile(dc_late_forVmid_random_HH[,1] , c(0.025,0.975))
+
+dc_late_forVmid_random_quants_HH_alpha <- quantile(dc_late_forVmid_random_HH[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_HH <- as.data.frame(t(c(VC_dc_late_forVmid_HH,dc_late_forVmid_random_quants_HH,dc_late_forVmid_random_quants_HH_alpha,"D. carrolli","Late")))
+#
+
+dc_early_forVmid_HH <- ang.vec.alph(dc_subset_for_early_HH$estimate_log2, dc_subset_mid_early_HH$estimate_log2)
+
+dc_early_forVmid_random_HH <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dc_subset_for_early$estimate_log2,
+                                             vec2 = dc_subset_mid_early$estimate_log2,
+                                             sig_vec = dc_subset_for_early_HH$estimate_log2)))
+
+#hist(dc_early_forVmid_random_HH[,1], breaks = 50)
+
+dc_early_for_random_quants_HH <- quantile(dc_early_forVmid_random_HH[,1] , c(0.025,0.975))
+
+dc_early_for_random_quants_HH_alpha <- quantile(dc_early_forVmid_random_HH[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_HH <- as.data.frame(t(c(dc_early_forVmid_HH,dc_early_for_random_quants_HH,dc_early_for_random_quants_HH_alpha,"D. carrolli","Early")))
+
+#
+
+VC_dm_late_forVmid_HH <- ang.vec.alph(dm_subset_for_late_HH$estimate_log2, dm_subset_mid_late_HH$estimate_log2)
+
+dm_late_forVmid_random_HH <- t(replicate(10000,
+                                          RandomVectorSampler(
+                                            vec1 = dm_subset_for_late$estimate_log2,
+                                            vec2 = dm_subset_mid_late$estimate_log2,
+                                            sig_vec = dm_subset_for_late_HH$estimate_log2)))
+
+#hist(dm_late_forVmid_random_HH[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_HH <- quantile(dm_late_forVmid_random_HH[,1] , c(0.025,0.975))
+
+dm_late_forVmid_random_quants_HH_alpha <- quantile(dm_late_forVmid_random_HH[,4] , c(0.025,0.975))
+
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_HH <- as.data.frame(t(c(VC_dm_late_forVmid_HH,dm_late_forVmid_random_quants_HH,dm_late_forVmid_random_quants_HH_alpha,"D. melanogaster","Late")))
+
+#
+
+dm_early_forVmid_HH <- ang.vec.alph(dm_subset_for_early_HH$estimate_log2, dm_subset_mid_early_HH$estimate_log2)
+
+dm_early_forVmid_random_HH <- t(replicate(10000,
+                                           RandomVectorSampler(
+                                             vec1 = dm_subset_for_early$estimate_log2,
+                                             vec2 = dm_subset_mid_early$estimate_log2,
+                                             sig_vec = dm_subset_for_early_HH$estimate_log2)))
+
+#hist(dm_early_forVmid_random_HH[,1], breaks = 50)
+
+dm_early_for_random_quants_HH <- quantile(dm_early_forVmid_random_HH[,1] , c(0.025,0.975))
+
+dm_early_for_random_quants_HH_alpha <- quantile(dm_early_forVmid_random_HH[,4] , c(0.025,0.975))
+
+
+#
+
+plotting_dm_early_for_HH <- as.data.frame(t(c(dm_early_forVmid_HH,dm_early_for_random_quants_HH,dm_early_for_random_quants_HH_alpha ,"D. melanogaster","Early")))
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_HH,plotting_VC_dp_early_forVmid_HH,plotting_VC_dc_late_forVmid_HH,plotting_dc_early_for_HH,plotting_VC_dm_late_forVmid_HH,plotting_dm_early_for_HH))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+HH_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+
+HH_Mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(HH_VC)/(HH_Mag)
+```
+
+# Below is signalling genes between species #
+
+Dp genes of Interest signalling in the foreleg at both developmental stages between prolongata and the other two species
+
+```{r}
+dp_GOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% genes_of_interest)]
+
+dc_GOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dc_GOI$gene]
+
+GOI_dpdc_for_late <- ang.vec.alph(dp_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdc_for_late_random_quants <- quantile(GOI_dpdc_for_late_random[,1] , c(0.025,0.975))
+GOI_dpdc_for_late_random_quants_alpha <- quantile(GOI_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_GOI_for_late <- as.data.table(t(c(GOI_dpdc_for_late,GOI_dpdc_for_late_random_quants,GOI_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_GOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% genes_of_interest)]
+
+dm_GOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dm_GOI$gene]
+
+GOI_dpdm_for_late <- ang.vec.alph(dp_GOI$estimate_log2, dm_GOI$estimate_log2)
+
+GOI_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdm_for_late_random_quants <- quantile(GOI_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+GOI_dpdm_for_late_random_quants_alpha <- quantile(GOI_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_GOI_for_late <- as.data.table(t(c(GOI_dpdm_for_late,GOI_dpdm_for_late_random_quants,GOI_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_GOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% genes_of_interest)]
+
+dc_GOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dc_GOI$gene]
+
+GOI_dpdc_for_early <- ang.vec.alph(dp_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdc_for_early_random_quants <- quantile(GOI_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+GOI_dpdc_for_early_random_quants_alpha <- quantile(GOI_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_GOI_for_early <- as.data.table(t(c(GOI_dpdc_for_early,GOI_dpdc_for_early_random_quants,GOI_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_GOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% genes_of_interest)]
+
+dm_GOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dm_GOI$gene]
+
+GOI_dpdm_for_early <- ang.vec.alph(dp_GOI$estimate_log2, dm_GOI$estimate_log2)
+
+GOI_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdm_for_early_random_quants <- quantile(GOI_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+GOI_dpdm_for_early_random_quants_alpha <- quantile(GOI_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_GOI_for_early <- as.data.table(t(c(GOI_dpdm_for_early,GOI_dpdm_for_early_random_quants,GOI_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+###
+
+
+dm_GOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% genes_of_interest)]
+
+dc_GOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_GOI$gene)]
+
+GOI_dmdc_for_early <- ang.vec.alph(dm_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_GOI$estimate_log2)))
+
+GOI_dmdc_for_early_random_quants <- quantile(GOI_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+GOI_dmdc_for_early_random_quants_alpha <- quantile(GOI_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_GOI_for_early <- as.data.table(t(c(GOI_dmdc_for_early,GOI_dmdc_for_early_random_quants,GOI_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_GOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% genes_of_interest)]
+
+dc_GOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_GOI$gene)]
+
+GOI_dmdc_for_late <- ang.vec.alph(dm_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_GOI$estimate_log2)))
+
+GOI_dmdc_for_late_random_quants <- quantile(GOI_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+GOI_dmdc_for_late_random_quants_alpha <- quantile(GOI_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_GOI_for_late <- as.data.table(t(c(GOI_dmdc_for_late,GOI_dmdc_for_late_random_quants,GOI_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+
+###
+
+plotting_species_GOI <- as.data.frame(rbind(plotting_dpdc_GOI_for_early,plotting_dpdc_GOI_for_late,plotting_dpdm_GOI_for_early,plotting_dpdm_GOI_for_late,plotting_dmdc_GOI_for_early,plotting_dmdc_GOI_for_late))
+
+colnames(plotting_species_GOI) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_GOI[1:9] <- lapply(plotting_species_GOI[1:9], as.numeric)
+
+GOI_VC <- ggplot(plotting_species_GOI, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+
+GOI_Mag <- ggplot(plotting_species_GOI, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\n vector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+
+(GOI_VC)/(GOI_Mag)
+
+```
+
+Male genes
+
+```{r}
+dp_MGOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% male_genes)]
+
+dc_MGOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_MGOI$gene)]
+
+dp_MGOI <- dp_MGOI[dp_MGOI$gene %in% dc_MGOI$gene]
+
+MGOI_dpdc_for_late <- ang.vec.alph(dp_MGOI$estimate_log2, dc_MGOI$estimate_log2)
+
+MGOI_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_MGOI$estimate_log2)))
+
+MGOI_dpdc_for_late_random_quants <- quantile(MGOI_dpdc_for_late_random[,1] , c(0.025,0.975))
+MGOI_dpdc_for_late_random_quants_alpha <- quantile(MGOI_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_MGOI_for_late <- as.data.table(t(c(MGOI_dpdc_for_late,MGOI_dpdc_for_late_random_quants,MGOI_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_MGOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% male_genes)]
+
+dm_MGOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_MGOI$gene)]
+
+dp_MGOI <- dp_MGOI[dp_MGOI$gene %in% dm_MGOI$gene]
+
+MGOI_dpdm_for_late <- ang.vec.alph(dp_MGOI$estimate_log2, dm_MGOI$estimate_log2)
+
+MGOI_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_MGOI$estimate_log2)))
+
+MGOI_dpdm_for_late_random_quants <- quantile(MGOI_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+MGOI_dpdm_for_late_random_quants_alpha <- quantile(MGOI_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_MGOI_for_late <- as.data.table(t(c(MGOI_dpdm_for_late,MGOI_dpdm_for_late_random_quants,MGOI_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_MGOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% male_genes)]
+
+dc_MGOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_MGOI$gene)]
+
+dp_MGOI <- dp_MGOI[dp_MGOI$gene %in% dc_MGOI$gene]
+
+MGOI_dpdc_for_early <- ang.vec.alph(dp_MGOI$estimate_log2, dc_MGOI$estimate_log2)
+
+MGOI_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_MGOI$estimate_log2)))
+
+MGOI_dpdc_for_early_random_quants <- quantile(MGOI_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+MGOI_dpdc_for_early_random_quants_alpha <- quantile(MGOI_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_MGOI_for_early <- as.data.table(t(c(MGOI_dpdc_for_early,MGOI_dpdc_for_early_random_quants,MGOI_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_MGOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% male_genes)]
+
+dm_MGOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_MGOI$gene)]
+
+dp_MGOI <- dp_MGOI[dp_MGOI$gene %in% dm_MGOI$gene]
+
+MGOI_dpdm_for_early <- ang.vec.alph(dp_MGOI$estimate_log2, dm_MGOI$estimate_log2)
+
+MGOI_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_MGOI$estimate_log2)))
+
+MGOI_dpdm_for_early_random_quants <- quantile(MGOI_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+MGOI_dpdm_for_early_random_quants_alpha <- quantile(MGOI_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_MGOI_for_early <- as.data.table(t(c(MGOI_dpdm_for_early,MGOI_dpdm_for_early_random_quants,MGOI_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+###
+
+
+dm_MGOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% male_genes)]
+
+dc_MGOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_MGOI$gene)]
+
+MGOI_dmdc_for_early <- ang.vec.alph(dm_MGOI$estimate_log2, dc_MGOI$estimate_log2)
+
+MGOI_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_MGOI$estimate_log2)))
+
+MGOI_dmdc_for_early_random_quants <- quantile(MGOI_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+MGOI_dmdc_for_early_random_quants_alpha <- quantile(MGOI_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_MGOI_for_early <- as.data.table(t(c(MGOI_dmdc_for_early,MGOI_dmdc_for_early_random_quants,MGOI_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_MGOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% male_genes)]
+
+dc_MGOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_MGOI$gene)]
+
+MGOI_dmdc_for_late <- ang.vec.alph(dm_MGOI$estimate_log2, dc_MGOI$estimate_log2)
+
+MGOI_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_MGOI$estimate_log2)))
+
+MGOI_dmdc_for_late_random_quants <- quantile(MGOI_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+MGOI_dmdc_for_late_random_quants_alpha <- quantile(MGOI_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_MGOI_for_late <- as.data.table(t(c(MGOI_dmdc_for_late,MGOI_dmdc_for_late_random_quants,MGOI_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+
+###
+
+plotting_species_MGOI <- as.data.frame(rbind(plotting_dpdc_MGOI_for_early,plotting_dpdc_MGOI_for_late,plotting_dpdm_MGOI_for_early,plotting_dpdm_MGOI_for_late,plotting_dmdc_MGOI_for_early,plotting_dmdc_MGOI_for_late))
+
+colnames(plotting_species_MGOI) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_MGOI[1:9] <- lapply(plotting_species_MGOI[1:9], as.numeric)
+
+MGOI_VC <- ggplot(plotting_species_MGOI, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+MGOI_Mag <- ggplot(plotting_species_MGOI, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(MGOI_VC)/(MGOI_Mag)
+
+```
+
+Female genes
+
+```{r}
+dp_FGOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% female_genes)]
+
+dc_FGOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_FGOI$gene)]
+
+dp_FGOI <- dp_FGOI[dp_FGOI$gene %in% dc_FGOI$gene]
+
+FGOI_dpdc_for_late <- ang.vec.alph(dp_FGOI$estimate_log2, dc_FGOI$estimate_log2)
+
+FGOI_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_FGOI$estimate_log2)))
+
+FGOI_dpdc_for_late_random_quants <- quantile(FGOI_dpdc_for_late_random[,1] , c(0.025,0.975))
+FGOI_dpdc_for_late_random_quants_alpha <- quantile(FGOI_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_FGOI_for_late <- as.data.table(t(c(FGOI_dpdc_for_late,FGOI_dpdc_for_late_random_quants,FGOI_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_FGOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% female_genes)]
+
+dm_FGOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_FGOI$gene)]
+
+dp_FGOI <- dp_FGOI[dp_FGOI$gene %in% dm_FGOI$gene]
+
+FGOI_dpdm_for_late <- ang.vec.alph(dp_FGOI$estimate_log2, dm_FGOI$estimate_log2)
+
+FGOI_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_FGOI$estimate_log2)))
+
+FGOI_dpdm_for_late_random_quants <- quantile(FGOI_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+FGOI_dpdm_for_late_random_quants_alpha <- quantile(FGOI_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_FGOI_for_late <- as.data.table(t(c(FGOI_dpdm_for_late,FGOI_dpdm_for_late_random_quants,FGOI_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_FGOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% female_genes)]
+
+dc_FGOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_FGOI$gene)]
+
+dp_FGOI <- dp_FGOI[dp_FGOI$gene %in% dc_FGOI$gene]
+
+FGOI_dpdc_for_early <- ang.vec.alph(dp_FGOI$estimate_log2, dc_FGOI$estimate_log2)
+
+FGOI_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_FGOI$estimate_log2)))
+
+FGOI_dpdc_for_early_random_quants <- quantile(FGOI_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+FGOI_dpdc_for_early_random_quants_alpha <- quantile(FGOI_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_FGOI_for_early <- as.data.table(t(c(FGOI_dpdc_for_early,FGOI_dpdc_for_early_random_quants,FGOI_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_FGOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% female_genes)]
+
+dm_FGOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_FGOI$gene)]
+
+dp_FGOI <- dp_FGOI[dp_FGOI$gene %in% dm_FGOI$gene]
+
+FGOI_dpdm_for_early <- ang.vec.alph(dp_FGOI$estimate_log2, dm_FGOI$estimate_log2)
+
+FGOI_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_FGOI$estimate_log2)))
+
+FGOI_dpdm_for_early_random_quants <- quantile(FGOI_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+FGOI_dpdm_for_early_random_quants_alpha <- quantile(FGOI_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_FGOI_for_early <- as.data.table(t(c(FGOI_dpdm_for_early,FGOI_dpdm_for_early_random_quants,FGOI_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+###
+
+
+dm_FGOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% female_genes)]
+
+dc_FGOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_FGOI$gene)]
+
+FGOI_dmdc_for_early <- ang.vec.alph(dm_FGOI$estimate_log2, dc_FGOI$estimate_log2)
+
+FGOI_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_FGOI$estimate_log2)))
+
+FGOI_dmdc_for_early_random_quants <- quantile(FGOI_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+FGOI_dmdc_for_early_random_quants_alpha <- quantile(FGOI_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_FGOI_for_early <- as.data.table(t(c(FGOI_dmdc_for_early,FGOI_dmdc_for_early_random_quants,FGOI_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_FGOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% female_genes)]
+
+dc_FGOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_FGOI$gene)]
+
+FGOI_dmdc_for_late <- ang.vec.alph(dm_FGOI$estimate_log2, dc_FGOI$estimate_log2)
+
+FGOI_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_FGOI$estimate_log2)))
+
+FGOI_dmdc_for_late_random_quants <- quantile(FGOI_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+FGOI_dmdc_for_late_random_quants_alpha <- quantile(FGOI_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_FGOI_for_late <- as.data.table(t(c(FGOI_dmdc_for_late,FGOI_dmdc_for_late_random_quants,FGOI_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+
+###
+
+plotting_species_FGOI <- as.data.frame(rbind(plotting_dpdc_FGOI_for_early,plotting_dpdc_FGOI_for_late,plotting_dpdm_FGOI_for_early,plotting_dpdm_FGOI_for_late,plotting_dmdc_FGOI_for_early,plotting_dmdc_FGOI_for_late))
+
+colnames(plotting_species_FGOI) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_FGOI[1:9] <- lapply(plotting_species_FGOI[1:9], as.numeric)
+
+FGOI_VC <- ggplot(plotting_species_FGOI, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+FGOI_Mag <- ggplot(plotting_species_FGOI, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage")
+
+(FGOI_VC)/(FGOI_Mag)
+
+```
+
+
+To confirm that this magnitude effect is not simply a product of our filtering for differentially expressed genes in D. prolongata, I will find 'genes of interest' in the same way for D. melanogaster and repeat the analysis.
+
+
+```{r}
+
+dm_dbl <- dm[dm$LCL_log2 > 1 & dm$UCL_log2 > 1 | dm$LCL_log2 < -1 & dm$UCL_log2 < -1]
+
+dm_dbl_for <- dm_dbl[leg == "for"]
+dm_dbl_mid <- dm_dbl[leg == "mid"]
+dm_genes_of_interest <- dm_dbl_for$gene[-which(dm_dbl_for$gene %in% dm_dbl_mid$gene)]
+
+
+dp_GOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% dm_genes_of_interest)]
+
+dc_GOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dc_GOI$gene]
+
+GOI_dpdc_for_late <- ang.vec.alph(dp_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdc_for_late_random_quants <- quantile(GOI_dpdc_for_late_random[,1] , c(0.025,0.975))
+GOI_dpdc_for_late_random_quants_alpha <- quantile(GOI_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_GOI_for_late <- as.data.table(t(c(GOI_dpdc_for_late,GOI_dpdc_for_late_random_quants,GOI_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_GOI <- dp_subset_for_late[which(dp_subset_for_late$gene %in% dm_genes_of_interest)]
+
+dm_GOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dm_GOI$gene]
+
+GOI_dpdm_for_late <- ang.vec.alph(dp_GOI$estimate_log2, dm_GOI$estimate_log2)
+
+GOI_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdm_for_late_random_quants <- quantile(GOI_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+GOI_dpdm_for_late_random_quants_alpha <- quantile(GOI_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_GOI_for_late <- as.data.table(t(c(GOI_dpdm_for_late,GOI_dpdm_for_late_random_quants,GOI_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_GOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dm_genes_of_interest)]
+
+dc_GOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dc_GOI$gene]
+
+GOI_dpdc_for_early <- ang.vec.alph(dp_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdc_for_early_random_quants <- quantile(GOI_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+GOI_dpdc_for_early_random_quants_alpha <- quantile(GOI_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_GOI_for_early <- as.data.table(t(c(GOI_dpdc_for_early,GOI_dpdc_for_early_random_quants,GOI_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_GOI <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dm_genes_of_interest)]
+
+dm_GOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_GOI$gene)]
+
+dp_GOI <- dp_GOI[dp_GOI$gene %in% dm_GOI$gene]
+
+GOI_dpdm_for_early <- ang.vec.alph(dp_GOI$estimate_log2, dm_GOI$estimate_log2)
+
+GOI_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_GOI$estimate_log2)))
+
+GOI_dpdm_for_early_random_quants <- quantile(GOI_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+GOI_dpdm_for_early_random_quants_alpha <- quantile(GOI_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_GOI_for_early <- as.data.table(t(c(GOI_dpdm_for_early,GOI_dpdm_for_early_random_quants,GOI_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+###
+
+
+dm_GOI <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dm_genes_of_interest)]
+
+dc_GOI <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_GOI$gene)]
+
+GOI_dmdc_for_early <- ang.vec.alph(dm_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_GOI$estimate_log2)))
+
+GOI_dmdc_for_early_random_quants <- quantile(GOI_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+GOI_dmdc_for_early_random_quants_alpha <- quantile(GOI_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_GOI_for_early <- as.data.table(t(c(GOI_dmdc_for_early,GOI_dmdc_for_early_random_quants,GOI_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_GOI <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dm_genes_of_interest)]
+
+dc_GOI <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_GOI$gene)]
+
+GOI_dmdc_for_late <- ang.vec.alph(dm_GOI$estimate_log2, dc_GOI$estimate_log2)
+
+GOI_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_GOI$estimate_log2)))
+
+GOI_dmdc_for_late_random_quants <- quantile(GOI_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+GOI_dmdc_for_late_random_quants_alpha <- quantile(GOI_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_GOI_for_late <- as.data.table(t(c(GOI_dmdc_for_late,GOI_dmdc_for_late_random_quants,GOI_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+
+###
+
+plotting_species_GOI <- as.data.frame(rbind(plotting_dpdc_GOI_for_early,plotting_dpdc_GOI_for_late,plotting_dpdm_GOI_for_early,plotting_dpdm_GOI_for_late,plotting_dmdc_GOI_for_early,plotting_dmdc_GOI_for_late))
+
+colnames(plotting_species_GOI) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_GOI[1:9] <- lapply(plotting_species_GOI[1:9], as.numeric)
+
+GOI_VC <- ggplot(plotting_species_GOI, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+GOI_Mag <- ggplot(plotting_species_GOI, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(GOI_VC)/(GOI_Mag)
+
+```
+
+Insulin signalling in the foreleg at both developmental stages between prolongata and the other two species
+
+```{r}
+dp_INS <- dp_subset_for_late[which(dp_subset_for_late$gene %in% INS_genes)]
+
+dc_INS <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_INS$gene)]
+
+dp_INS <- dp_INS[dp_INS$gene %in% dc_INS$gene]
+
+INS_dpdc_for_late <- ang.vec.alph(dp_INS$estimate_log2, dc_INS$estimate_log2)
+
+INS_dpdc_for_late_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                    vec2 = dc_subset_for_late$estimate_log2,
+                    sig_vec = dp_INS$estimate_log2)))
+
+INS_dpdc_for_late_random_quants <- quantile(INS_dpdc_for_late_random[,1] , c(0.025,0.975))
+INS_dpdc_for_late_random_quants_alpha <- quantile(INS_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_INS_for_late <- as.data.table(t(c(INS_dpdc_for_late,INS_dpdc_for_late_random_quants,INS_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_INS <- dp_subset_for_late[which(dp_subset_for_late$gene %in% INS_genes)]
+
+dm_INS <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_INS$gene)]
+
+dp_INS <- dp_INS[dp_INS$gene %in% dm_INS$gene]
+
+INS_dpdm_for_late <- ang.vec.alph(dp_INS$estimate_log2, dm_INS$estimate_log2)
+
+INS_dpdm_for_late_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                    vec2 = dm_subset_for_late$estimate_log2,
+                    sig_vec = dp_INS$estimate_log2)))
+
+INS_dpdm_for_late_random_quants <- quantile(INS_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+INS_dpdm_for_late_random_quants_alpha <- quantile(INS_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_INS_for_late <- as.data.table(t(c(INS_dpdm_for_late,INS_dpdm_for_late_random_quants,INS_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_INS <- dp_subset_for_early[which(dp_subset_for_early$gene %in% INS_genes)]
+
+dc_INS <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_INS$gene)]
+
+dp_INS <- dp_INS[dp_INS$gene %in% dc_INS$gene]
+
+INS_dpdc_for_early <- ang.vec.alph(dp_INS$estimate_log2, dc_INS$estimate_log2)
+
+INS_dpdc_for_early_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                    vec2 = dc_subset_for_early$estimate_log2,
+                    sig_vec = dp_INS$estimate_log2)))
+
+INS_dpdc_for_early_random_quants <- quantile(INS_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+INS_dpdc_for_early_random_quants_alpha <- quantile(INS_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_INS_for_early <- as.data.table(t(c(INS_dpdc_for_early,INS_dpdc_for_early_random_quants,INS_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_INS <- dp_subset_for_early[which(dp_subset_for_early$gene %in% INS_genes)]
+
+dm_INS <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_INS$gene)]
+
+dp_INS <- dp_INS[dp_INS$gene %in% dm_INS$gene]
+
+INS_dpdm_for_early <- ang.vec.alph(dp_INS$estimate_log2, dm_INS$estimate_log2)
+
+INS_dpdm_for_early_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                    vec2 = dm_subset_for_early$estimate_log2,
+                    sig_vec = dp_INS$estimate_log2)))
+
+INS_dpdm_for_early_random_quants <- quantile(INS_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+INS_dpdm_for_early_random_quants_alpha <- quantile(INS_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_INS_for_early <- as.data.table(t(c(INS_dpdm_for_early,INS_dpdm_for_early_random_quants,INS_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+###
+
+
+dm_INS <- dm_subset_for_early[which(dm_subset_for_early$gene %in% INS_genes)]
+
+dc_INS <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_INS$gene)]
+
+INS_dmdc_for_early <- ang.vec.alph(dm_INS$estimate_log2, dc_INS$estimate_log2)
+
+INS_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_INS$estimate_log2)))
+
+INS_dmdc_for_early_random_quants <- quantile(INS_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+INS_dmdc_for_early_random_quants_alpha <- quantile(INS_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_INS_for_early <- as.data.table(t(c(INS_dmdc_for_early,INS_dmdc_for_early_random_quants,INS_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_INS <- dm_subset_for_late[which(dm_subset_for_late$gene %in% INS_genes)]
+
+dc_INS <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_INS$gene)]
+
+INS_dmdc_for_late <- ang.vec.alph(dm_INS$estimate_log2, dc_INS$estimate_log2)
+
+INS_dmdc_for_late_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                             vec2 = dm_subset_for_late$estimate_log2,
+                                                             sig_vec = dm_INS$estimate_log2)))
+
+INS_dmdc_for_late_random_quants <- quantile(INS_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+INS_dmdc_for_late_random_quants_alpha <- quantile(INS_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_INS_for_late <- as.data.table(t(c(INS_dmdc_for_late,INS_dmdc_for_late_random_quants,INS_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+
+###
+
+plotting_species_INS <- as.data.frame(rbind(plotting_dpdc_INS_for_early,plotting_dpdc_INS_for_late,plotting_dpdm_INS_for_early,plotting_dpdm_INS_for_late,plotting_dmdc_INS_for_early,plotting_dmdc_INS_for_late))
+
+colnames(plotting_species_INS) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_INS[1:9] <- lapply(plotting_species_INS[1:9], as.numeric)
+
+INS_VC_spc <- ggplot(plotting_species_INS, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+INS_Mag_spc <- ggplot(plotting_species_INS, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(INS_VC_spc)/(INS_Mag_spc)
+```
+
+Notch
+
+```{r}
+dp_NOTCH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% NOTCH_genes)]
+
+dc_NOTCH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_NOTCH$gene)]
+
+dp_NOTCH <- dp_NOTCH[dp_NOTCH$gene %in% dc_NOTCH$gene]
+
+NOTCH_dpdc_for_late <- ang.vec.alph(dp_NOTCH$estimate_log2, dc_NOTCH$estimate_log2)
+
+NOTCH_dpdc_for_late_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                    vec2 = dc_subset_for_late$estimate_log2,
+                    sig_vec = dp_NOTCH$estimate_log2)))
+
+NOTCH_dpdc_for_late_random_quants <- quantile(NOTCH_dpdc_for_late_random[,1] , c(0.025,0.975))
+NOTCH_dpdc_for_late_random_quants_alpha <- quantile(NOTCH_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_NOTCH_for_late <- as.data.table(t(c(NOTCH_dpdc_for_late,NOTCH_dpdc_for_late_random_quants,NOTCH_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_NOTCH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% NOTCH_genes)]
+
+dm_NOTCH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_NOTCH$gene)]
+
+dp_NOTCH <- dp_NOTCH[dp_NOTCH$gene %in% dm_NOTCH$gene]
+
+NOTCH_dpdm_for_late <- ang.vec.alph(dp_NOTCH$estimate_log2, dm_NOTCH$estimate_log2)
+
+NOTCH_dpdm_for_late_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                    vec2 = dm_subset_for_late$estimate_log2,
+                    sig_vec = dp_NOTCH$estimate_log2)))
+
+NOTCH_dpdm_for_late_random_quants <- quantile(NOTCH_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+NOTCH_dpdm_for_late_random_quants_alpha <- quantile(NOTCH_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_NOTCH_for_late <- as.data.table(t(c(NOTCH_dpdm_for_late,NOTCH_dpdm_for_late_random_quants,NOTCH_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_NOTCH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% NOTCH_genes)]
+
+dc_NOTCH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_NOTCH$gene)]
+
+dp_NOTCH <- dp_NOTCH[dp_NOTCH$gene %in% dc_NOTCH$gene]
+
+NOTCH_dpdc_for_early <- ang.vec.alph(dp_NOTCH$estimate_log2, dc_NOTCH$estimate_log2)
+
+NOTCH_dpdc_for_early_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                    vec2 = dc_subset_for_early$estimate_log2,
+                    sig_vec = dp_NOTCH$estimate_log2)))
+
+NOTCH_dpdc_for_early_random_quants <- quantile(NOTCH_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+NOTCH_dpdc_for_early_random_quants_alpha <- quantile(NOTCH_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_NOTCH_for_early <- as.data.table(t(c(NOTCH_dpdc_for_early,NOTCH_dpdc_for_early_random_quants,NOTCH_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_NOTCH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% NOTCH_genes)]
+
+dm_NOTCH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_NOTCH$gene)]
+
+dp_NOTCH <- dp_NOTCH[dp_NOTCH$gene %in% dm_NOTCH$gene]
+
+NOTCH_dpdm_for_early <- ang.vec.alph(dp_NOTCH$estimate_log2, dm_NOTCH$estimate_log2)
+
+NOTCH_dpdm_for_early_random <- t(replicate(10000,
+RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                    vec2 = dm_subset_for_early$estimate_log2,
+                    sig_vec = dp_NOTCH$estimate_log2)))
+
+NOTCH_dpdm_for_early_random_quants <- quantile(NOTCH_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+NOTCH_dpdm_for_early_random_quants_alpha <- quantile(NOTCH_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_NOTCH_for_early <- as.data.table(t(c(NOTCH_dpdm_for_early,NOTCH_dpdm_for_early_random_quants,NOTCH_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+###
+
+
+dm_NOTCH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% NOTCH_genes)]
+
+dc_NOTCH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_NOTCH$gene)]
+
+NOTCH_dmdc_for_early <- ang.vec.alph(dm_NOTCH$estimate_log2, dc_NOTCH$estimate_log2)
+
+NOTCH_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_NOTCH$estimate_log2)))
+
+NOTCH_dmdc_for_early_random_quants <- quantile(NOTCH_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+NOTCH_dmdc_for_early_random_quants_alpha <- quantile(NOTCH_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_NOTCH_for_early <- as.data.table(t(c(NOTCH_dmdc_for_early,NOTCH_dmdc_for_early_random_quants,NOTCH_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_NOTCH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% NOTCH_genes)]
+
+dc_NOTCH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_NOTCH$gene)]
+
+NOTCH_dmdc_for_late <- ang.vec.alph(dm_NOTCH$estimate_log2, dc_NOTCH$estimate_log2)
+
+NOTCH_dmdc_for_late_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                             vec2 = dm_subset_for_late$estimate_log2,
+                                                             sig_vec = dm_NOTCH$estimate_log2)))
+
+NOTCH_dmdc_for_late_random_quants <- quantile(NOTCH_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+NOTCH_dmdc_for_late_random_quants_alpha <- quantile(NOTCH_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_NOTCH_for_late <- as.data.table(t(c(NOTCH_dmdc_for_late,NOTCH_dmdc_for_late_random_quants,NOTCH_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+
+###
+
+plotting_species_NOTCH <- as.data.frame(rbind(plotting_dpdc_NOTCH_for_early,plotting_dpdc_NOTCH_for_late,plotting_dpdm_NOTCH_for_early,plotting_dpdm_NOTCH_for_late,plotting_dmdc_NOTCH_for_early,plotting_dmdc_NOTCH_for_late))
+
+colnames(plotting_species_NOTCH) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_NOTCH[1:9] <- lapply(plotting_species_NOTCH[1:9], as.numeric)
+
+NOTCH_VC_spc <- ggplot(plotting_species_NOTCH, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+NOTCH_Mag_spc <- ggplot(plotting_species_NOTCH, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(NOTCH_VC_spc)/(NOTCH_Mag_spc)
+
+```
+
+
+EGFR signalling in the foreleg at both developmental stages between prolongata and the other two species
+
+```{r}
+dp_EGFR <- dp_subset_for_late[which(dp_subset_for_late$gene %in% EGFR_genes)]
+
+dc_EGFR <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_EGFR$gene)]
+
+dp_EGFR <- dp_EGFR[dp_EGFR$gene %in% dc_EGFR$gene]
+
+EGFR_dpdc_for_late <- ang.vec.alph(dp_EGFR$estimate_log2, dc_EGFR$estimate_log2)
+
+EGFR_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_EGFR$estimate_log2)))
+
+EGFR_dpdc_for_late_random_quants <- quantile(EGFR_dpdc_for_late_random[,1] , c(0.025,0.975))
+EGFR_dpdc_for_late_random_quants_alpha <- quantile(EGFR_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_EGFR_for_late <- as.data.table(t(c(EGFR_dpdc_for_late,EGFR_dpdc_for_late_random_quants,EGFR_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_EGFR <- dp_subset_for_late[which(dp_subset_for_late$gene %in% EGFR_genes)]
+
+dm_EGFR <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_EGFR$gene)]
+
+dp_EGFR <- dp_EGFR[dp_EGFR$gene %in% dm_EGFR$gene]
+
+EGFR_dpdm_for_late <- ang.vec.alph(dp_EGFR$estimate_log2, dm_EGFR$estimate_log2)
+
+EGFR_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_EGFR$estimate_log2)))
+
+EGFR_dpdm_for_late_random_quants <- quantile(EGFR_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+EGFR_dpdm_for_late_random_quants_alpha <- quantile(EGFR_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_EGFR_for_late <- as.data.table(t(c(EGFR_dpdm_for_late,EGFR_dpdm_for_late_random_quants,EGFR_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_EGFR <- dp_subset_for_early[which(dp_subset_for_early$gene %in% EGFR_genes)]
+
+dc_EGFR <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_EGFR$gene)]
+
+dp_EGFR <- dp_EGFR[dp_EGFR$gene %in% dc_EGFR$gene]
+
+EGFR_dpdc_for_early <- ang.vec.alph(dp_EGFR$estimate_log2, dc_EGFR$estimate_log2)
+
+EGFR_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_EGFR$estimate_log2)))
+
+EGFR_dpdc_for_early_random_quants <- quantile(EGFR_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+EGFR_dpdc_for_early_random_quants_alpha <- quantile(EGFR_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_EGFR_for_early <- as.data.table(t(c(EGFR_dpdc_for_early,EGFR_dpdc_for_early_random_quants,EGFR_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_EGFR <- dp_subset_for_early[which(dp_subset_for_early$gene %in% EGFR_genes)]
+
+dm_EGFR <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_EGFR$gene)]
+
+dp_EGFR <- dp_EGFR[dp_EGFR$gene %in% dm_EGFR$gene]
+
+EGFR_dpdm_for_early <- ang.vec.alph(dp_EGFR$estimate_log2, dm_EGFR$estimate_log2)
+
+EGFR_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_EGFR$estimate_log2)))
+
+EGFR_dpdm_for_early_random_quants <- quantile(EGFR_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+EGFR_dpdm_for_early_random_quants_alpha <- quantile(EGFR_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_EGFR_for_early <- as.data.table(t(c(EGFR_dpdm_for_early,EGFR_dpdm_for_early_random_quants,EGFR_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+
+dm_EGFR <- dm_subset_for_early[which(dm_subset_for_early$gene %in% EGFR_genes)]
+
+dc_EGFR <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_EGFR$gene)]
+
+EGFR_dmdc_for_early <- ang.vec.alph(dm_EGFR$estimate_log2, dc_EGFR$estimate_log2)
+
+EGFR_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_EGFR$estimate_log2)))
+
+EGFR_dmdc_for_early_random_quants <- quantile(EGFR_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+EGFR_dmdc_for_early_random_quants_alpha <- quantile(EGFR_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_EGFR_for_early <- as.data.table(t(c(EGFR_dmdc_for_early,EGFR_dmdc_for_early_random_quants,EGFR_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_EGFR <- dm_subset_for_late[which(dm_subset_for_late$gene %in% EGFR_genes)]
+
+dc_EGFR <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_EGFR$gene)]
+
+EGFR_dmdc_for_late <- ang.vec.alph(dm_EGFR$estimate_log2, dc_EGFR$estimate_log2)
+
+EGFR_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_EGFR$estimate_log2)))
+
+EGFR_dmdc_for_late_random_quants <- quantile(EGFR_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+EGFR_dmdc_for_late_random_quants_alpha <- quantile(EGFR_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_EGFR_for_late <- as.data.table(t(c(EGFR_dmdc_for_late,EGFR_dmdc_for_late_random_quants,EGFR_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+plotting_species_EGFR <- as.data.frame(rbind(plotting_dpdc_EGFR_for_early,plotting_dpdc_EGFR_for_late,plotting_dpdm_EGFR_for_early,plotting_dpdm_EGFR_for_late,plotting_dmdc_EGFR_for_early,plotting_dmdc_EGFR_for_late))
+
+colnames(plotting_species_EGFR) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_EGFR[1:9] <- lapply(plotting_species_EGFR[1:9], as.numeric)
+
+EGFR_VC_spc <- ggplot(plotting_species_EGFR, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+EGFR_Mag_spc <- ggplot(plotting_species_EGFR, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental\nstage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(EGFR_VC_spc)/(EGFR_Mag_spc)
+
+```
+
+SWH signalling in the foreleg at both developmental stages between prolongata and the other two species
+
+```{r}
+dp_SWH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% SWH_genes)]
+
+dc_SWH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_SWH$gene)]
+
+dp_SWH <- dp_SWH[dp_SWH$gene %in% dc_SWH$gene]
+
+SWH_dpdc_for_late <- ang.vec.alph(dp_SWH$estimate_log2, dc_SWH$estimate_log2)
+
+SWH_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_SWH$estimate_log2)))
+
+SWH_dpdc_for_late_random_quants <- quantile(SWH_dpdc_for_late_random[,1] , c(0.025,0.975))
+SWH_dpdc_for_late_random_quants_alpha <- quantile(SWH_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_SWH_for_late <- as.data.table(t(c(SWH_dpdc_for_late,SWH_dpdc_for_late_random_quants,SWH_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_SWH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% SWH_genes)]
+
+dm_SWH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_SWH$gene)]
+
+dp_SWH <- dp_SWH[dp_SWH$gene %in% dm_SWH$gene]
+
+SWH_dpdm_for_late <- ang.vec.alph(dp_SWH$estimate_log2, dm_SWH$estimate_log2)
+
+SWH_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_SWH$estimate_log2)))
+
+SWH_dpdm_for_late_random_quants <- quantile(SWH_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+SWH_dpdm_for_late_random_quants_alpha <- quantile(SWH_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_SWH_for_late <- as.data.table(t(c(SWH_dpdm_for_late,SWH_dpdm_for_late_random_quants,SWH_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_SWH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% SWH_genes)]
+
+dc_SWH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_SWH$gene)]
+
+dp_SWH <- dp_SWH[dp_SWH$gene %in% dc_SWH$gene]
+
+SWH_dpdc_for_early <- ang.vec.alph(dp_SWH$estimate_log2, dc_SWH$estimate_log2)
+
+SWH_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_SWH$estimate_log2)))
+
+SWH_dpdc_for_early_random_quants <- quantile(SWH_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+SWH_dpdc_for_early_random_quants_alpha <- quantile(SWH_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_SWH_for_early <- as.data.table(t(c(SWH_dpdc_for_early,SWH_dpdc_for_early_random_quants,SWH_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_SWH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% SWH_genes)]
+
+dm_SWH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_SWH$gene)]
+
+dp_SWH <- dp_SWH[dp_SWH$gene %in% dm_SWH$gene]
+
+SWH_dpdm_for_early <- ang.vec.alph(dp_SWH$estimate_log2, dm_SWH$estimate_log2)
+
+SWH_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_SWH$estimate_log2)))
+
+SWH_dpdm_for_early_random_quants <- quantile(SWH_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+SWH_dpdm_for_early_random_quants_alpha <- quantile(SWH_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_SWH_for_early <- as.data.table(t(c(SWH_dpdm_for_early,SWH_dpdm_for_early_random_quants,SWH_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+
+dm_SWH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% SWH_genes)]
+
+dc_SWH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_SWH$gene)]
+
+SWH_dmdc_for_early <- ang.vec.alph(dm_SWH$estimate_log2, dc_SWH$estimate_log2)
+
+SWH_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_SWH$estimate_log2)))
+
+SWH_dmdc_for_early_random_quants <- quantile(SWH_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+SWH_dmdc_for_early_random_quants_alpha <- quantile(SWH_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_SWH_for_early <- as.data.table(t(c(SWH_dmdc_for_early,SWH_dmdc_for_early_random_quants,SWH_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_SWH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% SWH_genes)]
+
+dc_SWH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_SWH$gene)]
+
+SWH_dmdc_for_late <- ang.vec.alph(dm_SWH$estimate_log2, dc_SWH$estimate_log2)
+
+SWH_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_SWH$estimate_log2)))
+
+SWH_dmdc_for_late_random_quants <- quantile(SWH_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+SWH_dmdc_for_late_random_quants_alpha <- quantile(SWH_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_SWH_for_late <- as.data.table(t(c(SWH_dmdc_for_late,SWH_dmdc_for_late_random_quants,SWH_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+plotting_species_SWH <- as.data.frame(rbind(plotting_dpdc_SWH_for_early,plotting_dpdc_SWH_for_late,plotting_dpdm_SWH_for_early,plotting_dpdm_SWH_for_late,plotting_dmdc_SWH_for_early,plotting_dmdc_SWH_for_late))
+
+colnames(plotting_species_SWH) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_SWH[1:9] <- lapply(plotting_species_SWH[1:9], as.numeric)
+
+hippo_VC_spc <- ggplot(plotting_species_SWH, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+hippo_Mag_spc <- ggplot(plotting_species_SWH, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(hippo_VC_spc)/(hippo_Mag_spc)
+```
+
+WNT signalling in the foreleg at both developmental stages between prolongata and the other two species
+
+```{r}
+dp_WNT <- dp_subset_for_late[which(dp_subset_for_late$gene %in% WNT_genes)]
+
+dc_WNT <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_WNT$gene)]
+
+dp_WNT <- dp_WNT[dp_WNT$gene %in% dc_WNT$gene]
+
+WNT_dpdc_for_late <- ang.vec.alph(dp_WNT$estimate_log2, dc_WNT$estimate_log2)
+
+WNT_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_WNT$estimate_log2)))
+
+WNT_dpdc_for_late_random_quants <- quantile(WNT_dpdc_for_late_random[,1] , c(0.025,0.975))
+WNT_dpdc_for_late_random_quants_alpha <- quantile(WNT_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_WNT_for_late <- as.data.table(t(c(WNT_dpdc_for_late,WNT_dpdc_for_late_random_quants,WNT_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_WNT <- dp_subset_for_late[which(dp_subset_for_late$gene %in% WNT_genes)]
+
+dm_WNT <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_WNT$gene)]
+
+dp_WNT <- dp_WNT[dp_WNT$gene %in% dm_WNT$gene]
+
+WNT_dpdm_for_late <- ang.vec.alph(dp_WNT$estimate_log2, dm_WNT$estimate_log2)
+
+WNT_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_WNT$estimate_log2)))
+
+WNT_dpdm_for_late_random_quants <- quantile(WNT_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+WNT_dpdm_for_late_random_quants_alpha <- quantile(WNT_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_WNT_for_late <- as.data.table(t(c(WNT_dpdm_for_late,WNT_dpdm_for_late_random_quants,WNT_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_WNT <- dp_subset_for_early[which(dp_subset_for_early$gene %in% WNT_genes)]
+
+dc_WNT <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_WNT$gene)]
+
+dp_WNT <- dp_WNT[dp_WNT$gene %in% dc_WNT$gene]
+
+WNT_dpdc_for_early <- ang.vec.alph(dp_WNT$estimate_log2, dc_WNT$estimate_log2)
+
+WNT_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_WNT$estimate_log2)))
+
+WNT_dpdc_for_early_random_quants <- quantile(WNT_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+WNT_dpdc_for_early_random_quants_alpha <- quantile(WNT_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_WNT_for_early <- as.data.table(t(c(WNT_dpdc_for_early,WNT_dpdc_for_early_random_quants,WNT_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_WNT <- dp_subset_for_early[which(dp_subset_for_early$gene %in% WNT_genes)]
+
+dm_WNT <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_WNT$gene)]
+
+dp_WNT <- dp_WNT[dp_WNT$gene %in% dm_WNT$gene]
+
+WNT_dpdm_for_early <- ang.vec.alph(dp_WNT$estimate_log2, dm_WNT$estimate_log2)
+
+WNT_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_WNT$estimate_log2)))
+
+WNT_dpdm_for_early_random_quants <- quantile(WNT_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+WNT_dpdm_for_early_random_quants_alpha <- quantile(WNT_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_WNT_for_early <- as.data.table(t(c(WNT_dpdm_for_early,WNT_dpdm_for_early_random_quants,WNT_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+
+
+dm_WNT <- dm_subset_for_early[which(dm_subset_for_early$gene %in% WNT_genes)]
+
+dc_WNT <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_WNT$gene)]
+
+WNT_dmdc_for_early <- ang.vec.alph(dm_WNT$estimate_log2, dc_WNT$estimate_log2)
+
+WNT_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_WNT$estimate_log2)))
+
+WNT_dmdc_for_early_random_quants <- quantile(WNT_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+WNT_dmdc_for_early_random_quants_alpha <- quantile(WNT_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_WNT_for_early <- as.data.table(t(c(WNT_dmdc_for_early,WNT_dmdc_for_early_random_quants,WNT_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_WNT <- dm_subset_for_late[which(dm_subset_for_late$gene %in% WNT_genes)]
+
+dc_WNT <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_WNT$gene)]
+
+WNT_dmdc_for_late <- ang.vec.alph(dm_WNT$estimate_log2, dc_WNT$estimate_log2)
+
+WNT_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_WNT$estimate_log2)))
+
+WNT_dmdc_for_late_random_quants <- quantile(WNT_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+WNT_dmdc_for_late_random_quants_alpha <- quantile(WNT_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_WNT_for_late <- as.data.table(t(c(WNT_dmdc_for_late,WNT_dmdc_for_late_random_quants,WNT_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+plotting_species_WNT <- as.data.frame(rbind(plotting_dpdc_WNT_for_early,plotting_dpdc_WNT_for_late,plotting_dpdm_WNT_for_early,plotting_dpdm_WNT_for_late,plotting_dmdc_WNT_for_early,plotting_dmdc_WNT_for_late))
+
+colnames(plotting_species_WNT) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_WNT[1:9] <- lapply(plotting_species_WNT[1:9], as.numeric)
+
+WNT_VC_spc <- ggplot(plotting_species_WNT, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+WNT_Mag_spc <- ggplot(plotting_species_WNT, aes(x = stage, y = Alpha_c)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(WNT_VC_spc)/(WNT_Mag_spc)
+```
+
+BMP signalling in the foreleg at both developmental stages between prolongata and the other two species
+
+```{r}
+dp_BMP <- dp_subset_for_late[which(dp_subset_for_late$gene %in% BMP_genes)]
+
+dc_BMP <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_BMP$gene)]
+
+dp_BMP <- dp_BMP[dp_BMP$gene %in% dc_BMP$gene]
+
+BMP_dpdc_for_late <- ang.vec.alph(dp_BMP$estimate_log2, dc_BMP$estimate_log2)
+
+BMP_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_BMP$estimate_log2)))
+
+BMP_dpdc_for_late_random_quants <- quantile(BMP_dpdc_for_late_random[,1] , c(0.025,0.975))
+BMP_dpdc_for_late_random_quants_alpha <- quantile(BMP_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_BMP_for_late <- as.data.table(t(c(BMP_dpdc_for_late,BMP_dpdc_for_late_random_quants,BMP_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_BMP <- dp_subset_for_late[which(dp_subset_for_late$gene %in% BMP_genes)]
+
+dm_BMP <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_BMP$gene)]
+
+dp_BMP <- dp_BMP[dp_BMP$gene %in% dm_BMP$gene]
+
+BMP_dpdm_for_late <- ang.vec.alph(dp_BMP$estimate_log2, dm_BMP$estimate_log2)
+
+BMP_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_BMP$estimate_log2)))
+
+BMP_dpdm_for_late_random_quants <- quantile(BMP_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+BMP_dpdm_for_late_random_quants_alpha <- quantile(BMP_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_BMP_for_late <- as.data.table(t(c(BMP_dpdm_for_late,BMP_dpdm_for_late_random_quants,BMP_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_BMP <- dp_subset_for_early[which(dp_subset_for_early$gene %in% BMP_genes)]
+
+dc_BMP <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_BMP$gene)]
+
+dp_BMP <- dp_BMP[dp_BMP$gene %in% dc_BMP$gene]
+
+BMP_dpdc_for_early <- ang.vec.alph(dp_BMP$estimate_log2, dc_BMP$estimate_log2)
+
+BMP_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_BMP$estimate_log2)))
+
+BMP_dpdc_for_early_random_quants <- quantile(BMP_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+BMP_dpdc_for_early_random_quants_alpha <- quantile(BMP_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_BMP_for_early <- as.data.table(t(c(BMP_dpdc_for_early,BMP_dpdc_for_early_random_quants,BMP_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_BMP <- dp_subset_for_early[which(dp_subset_for_early$gene %in% BMP_genes)]
+
+dm_BMP <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_BMP$gene)]
+
+dp_BMP <- dp_BMP[dp_BMP$gene %in% dm_BMP$gene]
+
+BMP_dpdm_for_early <- ang.vec.alph(dp_BMP$estimate_log2, dm_BMP$estimate_log2)
+
+BMP_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_BMP$estimate_log2)))
+
+BMP_dpdm_for_early_random_quants <- quantile(BMP_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+BMP_dpdm_for_early_random_quants_alpha <- quantile(BMP_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_BMP_for_early <- as.data.table(t(c(BMP_dpdm_for_early,BMP_dpdm_for_early_random_quants,BMP_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+
+dm_BMP <- dm_subset_for_early[which(dm_subset_for_early$gene %in% BMP_genes)]
+
+dc_BMP <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_BMP$gene)]
+
+BMP_dmdc_for_early <- ang.vec.alph(dm_BMP$estimate_log2, dc_BMP$estimate_log2)
+
+BMP_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_BMP$estimate_log2)))
+
+BMP_dmdc_for_early_random_quants <- quantile(BMP_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+BMP_dmdc_for_early_random_quants_alpha <- quantile(BMP_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_BMP_for_early <- as.data.table(t(c(BMP_dmdc_for_early,BMP_dmdc_for_early_random_quants,BMP_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_BMP <- dm_subset_for_late[which(dm_subset_for_late$gene %in% BMP_genes)]
+
+dc_BMP <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_BMP$gene)]
+
+BMP_dmdc_for_late <- ang.vec.alph(dm_BMP$estimate_log2, dc_BMP$estimate_log2)
+
+BMP_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_BMP$estimate_log2)))
+
+BMP_dmdc_for_late_random_quants <- quantile(BMP_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+BMP_dmdc_for_late_random_quants_alpha <- quantile(BMP_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_BMP_for_late <- as.data.table(t(c(BMP_dmdc_for_late,BMP_dmdc_for_late_random_quants,BMP_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+plotting_species_BMP <- as.data.frame(rbind(plotting_dpdc_BMP_for_early,plotting_dpdc_BMP_for_late,plotting_dpdm_BMP_for_early,plotting_dpdm_BMP_for_late,plotting_dmdc_BMP_for_early,plotting_dmdc_BMP_for_late))
+
+colnames(plotting_species_BMP) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_BMP[1:9] <- lapply(plotting_species_BMP[1:9], as.numeric)
+
+BMP_VC_spc <- ggplot(plotting_species_BMP, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+BMP_Mag_spc <- ggplot(plotting_species_BMP, aes(x = stage, y = Alpha)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(BMP_VC_spc)/(BMP_Mag_spc)
+```
+
+HH signalling in the foreleg at both developmental stages between prolongata and the other two species
+
+```{r}
+dp_HH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% HH_genes)]
+
+dc_HH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_HH$gene)]
+
+dp_HH <- dp_HH[dp_HH$gene %in% dc_HH$gene]
+
+HH_dpdc_for_late <- ang.vec.alph(dp_HH$estimate_log2, dc_HH$estimate_log2)
+
+HH_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_HH$estimate_log2)))
+
+HH_dpdc_for_late_random_quants <- quantile(HH_dpdc_for_late_random[,1] , c(0.025,0.975))
+HH_dpdc_for_late_random_quants_alpha <- quantile(HH_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_HH_for_late <- as.data.table(t(c(HH_dpdc_for_late,HH_dpdc_for_late_random_quants,HH_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_HH <- dp_subset_for_late[which(dp_subset_for_late$gene %in% HH_genes)]
+
+dm_HH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_HH$gene)]
+
+dp_HH <- dp_HH[dp_HH$gene %in% dm_HH$gene]
+
+HH_dpdm_for_late <- ang.vec.alph(dp_HH$estimate_log2, dm_HH$estimate_log2)
+
+HH_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_HH$estimate_log2)))
+
+HH_dpdm_for_late_random_quants <- quantile(HH_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+HH_dpdm_for_late_random_quants_alpha <- quantile(HH_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_HH_for_late <- as.data.table(t(c(HH_dpdm_for_late,HH_dpdm_for_late_random_quants,HH_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_HH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% HH_genes)]
+
+dc_HH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_HH$gene)]
+
+dp_HH <- dp_HH[dp_HH$gene %in% dc_HH$gene]
+
+HH_dpdc_for_early <- ang.vec.alph(dp_HH$estimate_log2, dc_HH$estimate_log2)
+
+HH_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_HH$estimate_log2)))
+
+HH_dpdc_for_early_random_quants <- quantile(HH_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+HH_dpdc_for_early_random_quants_alpha <- quantile(HH_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_HH_for_early <- as.data.table(t(c(HH_dpdc_for_early,HH_dpdc_for_early_random_quants,HH_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_HH <- dp_subset_for_early[which(dp_subset_for_early$gene %in% HH_genes)]
+
+dm_HH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_HH$gene)]
+
+dp_HH <- dp_HH[dp_HH$gene %in% dm_HH$gene]
+
+HH_dpdm_for_early <- ang.vec.alph(dp_HH$estimate_log2, dm_HH$estimate_log2)
+
+HH_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_HH$estimate_log2)))
+
+HH_dpdm_for_early_random_quants <- quantile(HH_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+HH_dpdm_for_early_random_quants_alpha <- quantile(HH_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_HH_for_early <- as.data.table(t(c(HH_dpdm_for_early,HH_dpdm_for_early_random_quants,HH_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+
+dm_HH <- dm_subset_for_early[which(dm_subset_for_early$gene %in% HH_genes)]
+
+dc_HH <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_HH$gene)]
+
+HH_dmdc_for_early <- ang.vec.alph(dm_HH$estimate_log2, dc_HH$estimate_log2)
+
+HH_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_HH$estimate_log2)))
+
+HH_dmdc_for_early_random_quants <- quantile(HH_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+HH_dmdc_for_early_random_quants_alpha <- quantile(HH_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_HH_for_early <- as.data.table(t(c(HH_dmdc_for_early,HH_dmdc_for_early_random_quants,HH_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_HH <- dm_subset_for_late[which(dm_subset_for_late$gene %in% HH_genes)]
+
+dc_HH <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_HH$gene)]
+
+HH_dmdc_for_late <- ang.vec.alph(dm_HH$estimate_log2, dc_HH$estimate_log2)
+
+HH_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_HH$estimate_log2)))
+
+HH_dmdc_for_late_random_quants <- quantile(HH_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+HH_dmdc_for_late_random_quants_alpha <- quantile(HH_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_HH_for_late <- as.data.table(t(c(HH_dmdc_for_late,HH_dmdc_for_late_random_quants,HH_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+plotting_species_HH <- as.data.frame(rbind(plotting_dpdc_HH_for_early,plotting_dpdc_HH_for_late,plotting_dpdm_HH_for_early,plotting_dpdm_HH_for_late,plotting_dmdc_HH_for_early,plotting_dmdc_HH_for_late))
+
+colnames(plotting_species_HH) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_HH[1:9] <- lapply(plotting_species_HH[1:9], as.numeric)
+
+HH_VC_spc <- ggplot(plotting_species_HH, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg vector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+HH_Mag_spc <- ggplot(plotting_species_HH, aes(x = stage, y = Alpha_c)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg/nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(HH_VC_spc)/(HH_Mag_spc)
+
+```
+
+I want to look for changes in grain targets between early and late third instar
+
+```{r}
+# within D. prolongata, foreleg late vs midleg late correlations
+
+# LF2 genes in the foreleg
+dp_grn_for_late_VC <- dp_subset_for_late[which(dp_subset_for_late$gene %in% grn_targets$V1),]
+
+# 2LFC genes from the forelegs, but their expression in the midlegs
+dp_grn_mid_late_VC <- dp_subset_mid_late[which(dp_subset_mid_late$gene %in% grn_targets$V1),]
+
+dp_grn_for_late_VC[which(dp_grn_for_late_VC$gene %in% dp_grn_mid_late_VC$gene),]$gene
+
+dp_grn_mid_late_VC[which(dp_grn_mid_late_VC$gene %in% dp_grn_for_late_VC$gene),]$gene
+
+# vector correlation of the 2LFC foreleg late genes in foreleg vs. midleg
+VC_dp_late_forVmid_grn <- ang.vec.alph(dp_grn_for_late_VC$estimate_log2, dp_grn_mid_late_VC$estimate_log2)
+
+dp_late_forVmid_random_grn <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dp_subset_for_late$estimate_log2,
+  # vector of LFC genes for midleg
+  vec2 = dp_subset_mid_late$estimate_log2,
+  # vector that is the length of the vectors used for the correlations
+  sig_vec = dp_grn_for_late_VC$estimate_log2)))
+
+# whats the distribution of these random draws?
+#hist(dp_late_forVmid_random_grn[,1], breaks = 50)
+#hist(dp_late_forVmid_random_grn[,4], breaks = 50)
+# There seems to be a strange peak at really high correlation that may be pulling the upper limit higher?
+
+# 95% quantiles on the random 10000 permutations
+dp_late_forVmid_random_quants_grn <- quantile(dp_late_forVmid_random_grn[,1] , c(0.025,0.975))
+dp_late_forVmid_random_quants_alpha_grn <- quantile(dp_late_forVmid_random_grn[,4] , c(0.025,0.975))
+
+# for plotting
+plotting_VC_dp_late_forVmid_grn <- as.data.frame(t(c(VC_dp_late_forVmid_grn,dp_late_forVmid_random_quants_grn,dp_late_forVmid_random_quants_alpha_grn,"D. prolongata","Late")))
+
+#
+
+
+
+#
+
+# within D. prolongata, foreleg early vs midleg early correlations
+
+dp_grn_for_early_VC <- dp_subset_for_early[which(dp_subset_for_early$gene %in% grn_targets$V1),]
+
+dp_grn_mid_early_VC <- dp_subset_mid_early[which(dp_subset_mid_early$gene %in% grn_targets$V1),]
+
+dp_early_forVmid_grn <- ang.vec.alph(dp_grn_for_early_VC$estimate_log2, dp_grn_mid_early_VC$estimate_log2)
+
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dp_early_forVmid_random_grn <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dp_subset_for_early$estimate_log2,
+  vec2 = dp_subset_mid_early$estimate_log2,
+  sig_vec = dp_grn_for_early_VC$estimate_log2)))
+
+#hist(dp_early_forVmid_random_grn[,1], breaks = 50)
+
+dp_early_for_random_quants_grn <- quantile(dp_early_forVmid_random_grn[,1] , c(0.025,0.975))
+dp_early_for_random_quants_alpha_grn <- quantile(dp_early_forVmid_random_grn[,4] , c(0.025,0.975))
+
+plotting_VC_dp_early_forVmid_grn <- as.data.frame(t(c(dp_early_forVmid_grn,dp_early_for_random_quants_grn,dp_early_for_random_quants_alpha_grn,"D. prolongata","Early")))
+#
+#
+#
+
+# within D. carrolli, foreleg late vs midleg late correlations
+
+dc_grn_for_late_VC <- dc_subset_for_late[which(dc_subset_for_late$gene %in% grn_targets$V1),]
+
+dc_grn_mid_late_VC <- dc_subset_mid_late[which(dc_subset_mid_late$gene %in% grn_targets$V1),]
+
+VC_dc_late_forVmid_grn <- ang.vec.alph(dc_grn_for_late_VC$estimate_log2, dc_grn_mid_late_VC$estimate_log2)
+
+dc_late_forVmid_random_grn <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_late$estimate_log2,
+  vec2 = dc_subset_mid_late$estimate_log2,
+  sig_vec = dc_grn_for_late_VC$estimate_log2)))
+
+#hist(dc_late_forVmid_random_grn[,1], breaks = 50)
+
+dc_late_forVmid_random_quants_grn <- quantile(dc_late_forVmid_random_grn[,1] , c(0.025,0.975))
+dc_late_forVmid_random_quants_alpha_grn <- quantile(dc_late_forVmid_random_grn[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dc_late_forVmid_grn <- as.data.frame(t(c(VC_dc_late_forVmid_grn,dc_late_forVmid_random_quants_grn,dc_late_forVmid_random_quants_alpha_grn,"D. carrolli","Late")))
+#
+
+
+
+#
+
+# within D. carrolli, foreleg early vs midleg early correlations
+
+dc_grn_for_early_VC <- dc_subset_for_early[which(dc_subset_for_early$gene %in% grn_targets$V1),]
+
+dc_grn_mid_early_VC <- dc_subset_mid_early[which(dc_subset_mid_early$gene %in% grn_targets$V1),]
+
+dc_early_forVmid_grn <- ang.vec.alph(dc_grn_for_early_VC$estimate_log2, dc_grn_mid_early_VC$estimate_log2)
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dc_early_forVmid_random_grn <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dc_subset_for_early$estimate_log2,
+  vec2 = dc_subset_mid_early$estimate_log2,
+  sig_vec = dc_grn_for_early_VC$estimate_log2)))
+
+#hist(dc_early_forVmid_random_grn[,1], breaks = 50)
+
+dc_early_for_random_quants_grn <- quantile(dc_early_forVmid_random_grn[,1] , c(0.025,0.975))
+dc_early_for_random_quants_alpha_grn <- quantile(dc_early_forVmid_random_grn[,4] , c(0.025,0.975))
+
+#
+
+plotting_dc_early_for_grn <- as.data.frame(t(c(dc_early_forVmid_grn,dc_early_for_random_quants_grn,dc_early_for_random_quants_alpha_grn,"D. carrolli","Early")))
+
+#
+
+
+
+# within D. melanogaster, foreleg late vs midleg late correlations
+
+dm_grn_for_late_VC <- dm_subset_for_late[which(dm_subset_for_late$gene %in% grn_targets$V1),]
+
+dm_grn_mid_late_VC <- dm_subset_mid_late[which(dm_subset_mid_late$gene %in% grn_targets$V1),]
+
+VC_dm_late_forVmid_grn <- ang.vec.alph(dm_grn_for_late_VC$estimate_log2, dm_grn_mid_late_VC$estimate_log2)
+
+dm_late_forVmid_random_grn <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_late$estimate_log2,
+  vec2 = dm_subset_mid_late$estimate_log2,
+  sig_vec = dm_grn_for_late_VC$estimate_log2)))
+
+#hist(dm_late_forVmid_random_grn[,1], breaks = 50)
+
+dm_late_forVmid_random_quants_grn <- quantile(dm_late_forVmid_random_grn[,1] , c(0.025,0.975))
+dm_late_forVmid_random_quants_alpha_grn <- quantile(dm_late_forVmid_random_grn[,4] , c(0.025,0.975))
+
+# for plotting
+
+plotting_VC_dm_late_forVmid_grn <- as.data.frame(t(c(VC_dm_late_forVmid_grn,dm_late_forVmid_random_quants_grn,dm_late_forVmid_random_quants_alpha_grn,"D. melanogaster","Late")))
+
+#
+
+
+
+#
+
+# within D. melanogaster, foreleg early vs midleg early correlations
+
+dm_grn_for_early_VC <- dm_subset_for_early[which(dm_subset_for_early$gene %in% grn_targets$V1),]
+
+dm_grn_mid_early_VC <- dm_subset_mid_early[which(dm_subset_mid_early$gene %in% grn_targets$V1),]
+
+
+dm_early_forVmid_grn <- ang.vec.alph(dm_grn_for_early_VC$estimate_log2, dm_grn_mid_early_VC$estimate_log2)
+
+# lengths don't match again, need to figure out a way to fix this
+
+#dp_subset_for_early_temp <- dp_subset_for_early[which(dp_subset_for_early$gene %in% dp_subset_mid_early$gene)]
+
+dm_early_forVmid_random_grn <- t(replicate(10000,
+RandomVectorSampler(
+  vec1 = dm_subset_for_early$estimate_log2,
+  vec2 = dm_subset_mid_early$estimate_log2,
+  sig_vec = dm_grn_for_early_VC$estimate_log2)))
+
+#hist(dm_early_forVmid_random_grn[,1], breaks = 50)
+
+dm_early_for_random_quants_grn <- quantile(dm_early_forVmid_random_grn[,1] , c(0.025,0.975))
+dm_early_for_random_quants_alpha_grn <- quantile(dm_early_forVmid_random_grn[,4] , c(0.025,0.975))
+
+#
+
+plotting_dm_early_for_grn <- as.data.frame(t(c(dm_early_forVmid_grn,dm_early_for_random_quants_grn,dm_early_for_random_quants_alpha_grn,"D. melanogaster","Early")))
+
+#
+
+
+
+# plot foreleg vs. midleg at both stages
+
+temp <- as.data.frame(rbind(plotting_VC_dp_late_forVmid_grn,plotting_VC_dp_early_forVmid_grn,plotting_VC_dc_late_forVmid_grn,plotting_dc_early_for_grn,plotting_VC_dm_late_forVmid_grn,plotting_dm_early_for_grn))
+
+colnames(temp) <- c("VC","Vangle","Alpha","alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","species","stage")
+
+temp[1:9] <- sapply(temp[1:9], as.numeric)
+
+for_mid_VC <- ggplot(temp, aes(x = stage, y = VC)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylim(-1,1) +
+  ylab("Foreleg to Midleg \nVector Correlation") +
+  xlab("Developmental Stage") +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+for_mid_mag <- ggplot(temp, aes(x = stage, y = Alpha)) +
+  theme_classic() +
+  facet_wrap(~species) +
+  ylab("Change in vector magnitude\n(foreleg/midleg)") +
+  xlab("Developmental Stage") +
+  #ylim(0,1) +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  theme(strip.text = element_text(face = "italic"))
+
+(for_mid_VC)/(for_mid_mag)
+
+```
+
+```{r}
+dp_grn <- dp_subset_for_late[which(dp_subset_for_late$gene %in% grn_targets$V1)]
+
+dc_grn <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dp_grn$gene)]
+
+dp_grn <- dp_grn[dp_grn$gene %in% dc_grn$gene]
+
+grn_dpdc_for_late <- ang.vec.alph(dp_grn$estimate_log2, dc_grn$estimate_log2)
+
+grn_dpdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dc_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_grn$estimate_log2)))
+
+grn_dpdc_for_late_random_quants <- quantile(grn_dpdc_for_late_random[,1] , c(0.025,0.975))
+grn_dpdc_for_late_random_quants_alpha <- quantile(grn_dpdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_grn_for_late <- as.data.table(t(c(grn_dpdc_for_late,grn_dpdc_for_late_random_quants,grn_dpdc_for_late_random_quants_alpha,"D. prolongata /\nD. carrolli","Late")))
+
+dp_grn <- dp_subset_for_late[which(dp_subset_for_late$gene %in% grn_targets$V1)]
+
+dm_grn <- dm_subset_for_late[which(dm_subset_for_late$gene %in% dp_grn$gene)]
+
+dp_grn <- dp_grn[dp_grn$gene %in% dm_grn$gene]
+
+grn_dpdm_for_late <- ang.vec.alph(dp_grn$estimate_log2, dm_grn$estimate_log2)
+
+grn_dpdm_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dp_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dp_grn$estimate_log2)))
+
+grn_dpdm_for_late_random_quants <- quantile(grn_dpdm_for_late_random[,1] , c(0.025,0.975))
+
+grn_dpdm_for_late_random_quants_alpha <- quantile(grn_dpdm_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_grn_for_late <- as.data.table(t(c(grn_dpdm_for_late,grn_dpdm_for_late_random_quants,grn_dpdm_for_late_random_quants_alpha,"D. prolongata /\nD. melanogaster","Late")))
+
+dp_grn <- dp_subset_for_early[which(dp_subset_for_early$gene %in% grn_targets$V1)]
+
+dc_grn <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dp_grn$gene)]
+
+dp_grn <- dp_grn[dp_grn$gene %in% dc_grn$gene]
+
+grn_dpdc_for_early <- ang.vec.alph(dp_grn$estimate_log2, dc_grn$estimate_log2)
+
+grn_dpdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_grn$estimate_log2)))
+
+grn_dpdc_for_early_random_quants <- quantile(grn_dpdc_for_early_random[,1] , c(0.025,0.975))
+
+grn_dpdc_for_early_random_quants_alpha <- quantile(grn_dpdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdc_grn_for_early <- as.data.table(t(c(grn_dpdc_for_early,grn_dpdc_for_early_random_quants,grn_dpdc_for_early_random_quants_alpha,"D. prolongata /\nD. carrolli","Early")))
+
+dp_grn <- dp_subset_for_early[which(dp_subset_for_early$gene %in% grn_targets$V1)]
+
+dm_grn <- dm_subset_for_early[which(dm_subset_for_early$gene %in% dp_grn$gene)]
+
+dp_grn <- dp_grn[dp_grn$gene %in% dm_grn$gene]
+
+grn_dpdm_for_early <- ang.vec.alph(dp_grn$estimate_log2, dm_grn$estimate_log2)
+
+grn_dpdm_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dp_subset_for_early$estimate_log2,
+                                                             vec2 = dm_subset_for_early$estimate_log2,
+                                                             sig_vec = dp_grn$estimate_log2)))
+
+grn_dpdm_for_early_random_quants <- quantile(grn_dpdm_for_early_random[,1] , c(0.025,0.975))
+
+grn_dpdm_for_early_random_quants_alpha <- quantile(grn_dpdm_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dpdm_grn_for_early <- as.data.table(t(c(grn_dpdm_for_early,grn_dpdm_for_early_random_quants,grn_dpdm_for_early_random_quants_alpha,"D. prolongata /\nD. melanogaster","Early")))
+
+
+dm_grn <- dm_subset_for_early[which(dm_subset_for_early$gene %in% grn_targets$V1)]
+
+dc_grn <- dc_subset_for_early[which(dc_subset_for_early$gene %in% dm_grn$gene)]
+
+grn_dmdc_for_early <- ang.vec.alph(dm_grn$estimate_log2, dc_grn$estimate_log2)
+
+grn_dmdc_for_early_random <- t(replicate(10000,
+                                         RandomVectorSampler(vec1 = dm_subset_for_early$estimate_log2,
+                                                             vec2 = dc_subset_for_early$estimate_log2,
+                                                             sig_vec = dm_grn$estimate_log2)))
+
+grn_dmdc_for_early_random_quants <- quantile(grn_dmdc_for_early_random[,1] , c(0.025,0.975))
+
+grn_dmdc_for_early_random_quants_alpha <- quantile(grn_dmdc_for_early_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_grn_for_early <- as.data.table(t(c(grn_dmdc_for_early,grn_dmdc_for_early_random_quants,grn_dmdc_for_early_random_quants_alpha,"D. carrolli /\nD. melanogaster","Early")))
+
+dm_grn <- dm_subset_for_late[which(dm_subset_for_late$gene %in% grn_targets$V1)]
+
+dc_grn <- dc_subset_for_late[which(dc_subset_for_late$gene %in% dm_grn$gene)]
+
+grn_dmdc_for_late <- ang.vec.alph(dm_grn$estimate_log2, dc_grn$estimate_log2)
+
+grn_dmdc_for_late_random <- t(replicate(10000,
+                                        RandomVectorSampler(vec1 = dc_subset_for_late$estimate_log2,
+                                                            vec2 = dm_subset_for_late$estimate_log2,
+                                                            sig_vec = dm_grn$estimate_log2)))
+
+grn_dmdc_for_late_random_quants <- quantile(grn_dmdc_for_late_random[,1] , c(0.025,0.975))
+
+grn_dmdc_for_late_random_quants_alpha <- quantile(grn_dmdc_for_late_random[,4] , c(0.025,0.975))
+
+plotting_dmdc_grn_for_late <- as.data.table(t(c(grn_dmdc_for_late,grn_dmdc_for_late_random_quants,grn_dmdc_for_late_random_quants_alpha,"D. carrolli /\nD. melanogaster","Late")))
+
+plotting_species_grn <- as.data.frame(rbind(plotting_dpdc_grn_for_early,plotting_dpdc_grn_for_late,plotting_dpdm_grn_for_early,plotting_dpdm_grn_for_late,plotting_dmdc_grn_for_early,plotting_dmdc_grn_for_late))
+
+colnames(plotting_species_grn) <- c("VC","Vangle","Alpha","Alpha_c","ED","VC_LCL","VC_UCL","Alpha_LCL","Alpha_UCL","Comparison","stage")
+
+plotting_species_grn[1:9] <- lapply(plotting_species_grn[1:9], as.numeric)
+
+grn_VC_spc <- ggplot(plotting_species_grn, aes(x = stage, y = VC)) +
+  facet_wrap(~Comparison) +
+  ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = VC_LCL, ymax = VC_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Foreleg\nvector correlation") +
+  xlab("Developmental stage") +
+  xlab(NULL) +
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank()) +
+  theme(strip.text = element_text(face = "italic"))
+
+grn_Mag_spc <- ggplot(plotting_species_grn, aes(x = stage, y = Alpha_c)) +
+  facet_wrap(~Comparison) +
+  #ylim(c(-1,1)) +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45,hjust=0.5,vjust=0.5)) +
+  geom_crossbar(aes(ymin = Alpha_LCL, ymax = Alpha_UCL), colour = "black", fill = "grey", alpha = 0.5) +
+  ylab("Change in foreleg\nvector magnitude") +
+  xlab("Developmental stage") +
+  theme(strip.text = element_text(face = "italic"))
+
+(grn_VC_spc)/(grn_Mag_spc)
+
+```
+
+

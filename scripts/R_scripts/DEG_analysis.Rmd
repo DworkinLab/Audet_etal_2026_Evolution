@@ -1,0 +1,900 @@
+---
+title: "DEG_analysis"
+author: "Tyler Audet"
+date: "2024-11-14"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(digits = 3)
+```
+
+```{r}
+library(tidyverse)
+library(data.table)
+library(cowplot)
+library(ashr)
+library(patchwork)
+library(glmmTMB)
+library(emmeans)
+```
+
+First load and clean the M-F contrasts
+
+!! Do not run, load in estimates below with ashr estimates !!
+```{r}
+dp <- na.omit(fread("../../outputs/pro_mf_contrast.txt"))
+dm <- na.omit(fread("../../outputs/mel_mf_contrast.txt"))
+dc <- na.omit(fread("../../outputs/car_mf_contrast.txt"))
+
+dp <- dp[,c(2,6,7,8,9,11,12,13)]
+dm <- dm[,c(2,6,7,8,9,11,12,13)]
+dc <- dc[,c(2,6,7,8,9,11,12,13)]
+
+headers <- c("gene","leg","stage","estimate","SE","LCL","UCL","p")
+
+colnames(dp) <- headers
+colnames(dm) <- headers
+colnames(dc) <- headers
+
+# Need to shrink, then figure out the UCL and LCL
+dp <- cbind(dp, ash(betahat = dp$estimate, sebetahat = dp$SE, method = "shrink")$result)
+dm <- cbind(dm, ash(betahat = dm$estimate, sebetahat = dm$SE, method = "shrink")$result)
+dc <- cbind(dc, ash(betahat = dc$estimate, sebetahat = dc$SE, method = "shrink")$result)
+
+dp <- cbind(dp, ashci(ash(betahat = dp$estimate, sebetahat = dp$SE, method = "shrink")))
+dm <- cbind(dm, ashci(ash(betahat = dm$estimate, sebetahat = dm$SE, method = "shrink")))
+dc <- cbind(dc, ashci(ash(betahat = dc$estimate, sebetahat = dc$SE, method = "shrink")))
+
+dp$estimate_log2 <- log2(exp(dp$PosteriorMean))
+dm$estimate_log2 <- log2(exp(dm$PosteriorMean))
+dc$estimate_log2 <- log2(exp(dc$PosteriorMean))
+
+dp$UCL_log2 <- log2(exp(dp$"0.975"))
+dm$UCL_log2 <- log2(exp(dm$"0.975"))
+dc$UCL_log2 <- log2(exp(dc$"0.975"))
+
+dp$LCL_log2 <- log2(exp(dp$"0.025"))
+dm$LCL_log2 <- log2(exp(dm$"0.025"))
+dc$LCL_log2 <- log2(exp(dc$"0.025"))
+
+write.csv(dp, "../../data/prolongata_norms")
+write.csv(dc, "../../data/carrolli_norms")
+write.csv(dm, "../../data/melanogaster_norms")
+```
+
+
+```{r}
+dp <- fread("../../data/prolongata_norms")
+dc <- fread("../../data/carrolli_norms")
+dm <- fread("../../data/melanogaster_norms")
+```
+
+I am going to look at the distribution of these estimates
+```{r}
+
+hist(dp[leg == "for" & stage == "late"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dp[leg == "for" & stage == "early"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dp[leg == "mid" & stage == "late"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dp[leg == "mid" & stage == "early"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+
+hist(dc[leg == "for" & stage == "late"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dc[leg == "for" & stage == "early"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dc[leg == "mid" & stage == "late"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dc[leg == "mid" & stage == "early"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+
+hist(dm[leg == "for" & stage == "late"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dm[leg == "for" & stage == "early"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dm[leg == "mid" & stage == "late"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+hist(dm[leg == "mid" & stage == "early"]$estimate_log2, breaks = 500, xlim = c(-2,2))
+
+```
+
+Next load and clean the emmeans estimates without any contrasts
+```{r}
+mf_dp <- na.omit(fread("../../outputs/pro_separate.txt"))
+mf_dm <- na.omit(fread("../../outputs/mel_separate.txt"))
+mf_dc <- na.omit(fread("../../outputs/car_separate.txt"))
+
+mf_dp <- mf_dp[,c(-1,-7,-8)]
+mf_dm <- mf_dm[,c(-1,-7,-8)]
+mf_dc <- mf_dc[,c(-1,-7,-8)]
+
+colnames(mf_dp) <- c("gene", "sex", "leg", "stage", "estimate", "LCL", "UCL")
+colnames(mf_dm) <- c("gene", "sex", "leg", "stage", "estimate", "LCL", "UCL")
+colnames(mf_dc) <- c("gene", "sex", "leg", "stage", "estimate", "LCL", "UCL")
+
+mf_dp$estimate_log2 <- log2(exp(mf_dp$estimate))
+mf_dm$estimate_log2 <- log2(exp(mf_dm$estimate))
+mf_dc$estimate_log2 <- log2(exp(mf_dc$estimate))
+
+mf_dp$UCL_log2 <- log2(exp(mf_dp$UCL))
+mf_dm$UCL_log2 <- log2(exp(mf_dm$UCL))
+mf_dc$UCL_log2 <- log2(exp(mf_dc$UCL))
+
+mf_dp$LCL_log2 <- log2(exp(mf_dp$LCL))
+mf_dm$LCL_log2 <- log2(exp(mf_dm$LCL))
+mf_dc$LCL_log2 <- log2(exp(mf_dc$LCL))
+```
+
+```{r}
+
+# How many genes do we have values for and how many are male or female biased
+length(unique(dp$gene)) # 10935 gff #10933 gffread #10952 agat
+length(unique(dp$gene[dp$LCL_log2 > 0])) # 2845 MB
+length(unique(dp$gene[dp$LCL_log2 > 0 & dp$leg == "for"])) # 2248
+length(unique(dp$gene[dp$UCL_log2 < 0])) # 2820 FB
+length(unique(dp$gene[dp$UCL_log2 < 0 & dp$leg == "for"])) # 1920
+
+length(unique(dm$gene)) # 10768
+length(unique(dm$gene[dm$LCL_log2 > 0])) # 1412 MB
+length(unique(dm$gene[dm$LCL_log2 > 0 & dm$leg == "for"])) # 1123
+length(unique(dm$gene[dm$UCL_log2 < 0])) # 1559 FB
+length(unique(dm$gene[dm$UCL_log2 < 0 & dm$leg == "for"])) # 1189
+
+length(unique(dc$gene)) # 6177 gff #10077 gffread gtf
+length(unique(dc$gene[dc$LCL_log2 > 0])) # 1745 MB
+length(unique(dc$gene[dc$LCL_log2 > 0 & dc$leg == "for"])) # 1590
+length(unique(dc$gene[dc$UCL_log2 < 0])) # 1062 FB
+length(unique(dc$gene[dc$UCL_log2 < 0 & dc$leg == "for"])) # 930
+
+#doing the same thing for just genes that doubled their expression
+
+dp_dbl <- dp[dp$UCL_log2 > 1 & dp$LCL_log2 > 1 | dp$LCL_log2 < -1 & dp$UCL_log2 < -1 & dp$leg == "for"]
+length(unique(dp_dbl$gene)) # 631 gff # 632 gffread gtf #283 shrunk
+dm_dbl <- dm[dm$UCL_log2 > 1 & dm$LCL_log2 > 1 | dm$LCL_log2 < -1 & dm$UCL_log2 < -1]
+length(unique(dm_dbl$gene)) # 341 gff #60 shrunk?
+dc_dbl <- dc[dc$UCL_log2 > 1 & dc$LCL_log2 > 1 | dc$LCL_log2 < -1 & dc$UCL_log2 < -1]
+length(unique(dc_dbl$gene)) # 202 gff #388 gffread gtf #52 shrunk
+
+# pulling out genes of interest with log2 fold change
+dp_no_dc <- dp_dbl[-which(dp_dbl$gene %in% dc_dbl$gene)]
+dp_interestingGenes <- dp_no_dc[-which(dp_no_dc$gene %in% dm_dbl$gene)]
+dp_interestingGenes_for <- dp_interestingGenes[leg == "for"]
+dp_interestingGenes_mid <- dp_interestingGenes[leg == "mid"]
+dp_interestingGenes <- dp_interestingGenes_for[-which(dp_interestingGenes_for$gene %in% dp_interestingGenes_mid$gene)]
+write.csv(dp_interestingGenes,file = "../outputs/log2DiffExp_prolongata_genes.csv",quote = F,row.names = F)
+
+dp_interestingGenes_for$gene[which(dp_interestingGenes_for$gene %in% dp_interestingGenes_mid$gene)]
+
+# sex specific doubling
+male_biased_dp_x2 <- dp_dbl[dp_dbl$LCL_log2 > 1]
+length(unique(male_biased_dp_x2$gene)) # 173
+male_biased_dp_x2_for <- male_biased_dp_x2[leg == "for"]
+male_biased_dp_x2_mid <- male_biased_dp_x2[leg == "mid"]
+length(male_biased_dp_x2_for$gene[-which(male_biased_dp_x2_for$gene %in% male_biased_dp_x2_mid$gene)])
+
+female_biased_dp_x2 <- dp_dbl[dp_dbl$UCL_log2 < -1]
+length(unique(female_biased_dp_x2$gene)) # 380 female biased # # no outliers = 381
+female_biased_dp_x2_for <- female_biased_dp_x2[leg == "for"]
+female_biased_dp_x2_mid <- female_biased_dp_x2[leg == "mid"]
+#length(female_biased_dp_x2_for$gene[-which(female_biased_dp_x2_for$gene %in% female_biased_dp_x2_mid$gene)])
+
+male_biased_dc_x2 <- dc_dbl[dc_dbl$LCL_log2 > 1]
+length(unique(male_biased_dc_x2$gene)) # 173
+male_biased_dc_x2_for <- male_biased_dc_x2[leg == "for"]
+male_biased_dc_x2_mid <- male_biased_dc_x2[leg == "mid"]
+length(male_biased_dc_x2_for$gene[-which(male_biased_dc_x2_for$gene %in% male_biased_dc_x2_mid$gene)])
+
+female_biased_dc_x2 <- dc_dbl[dc_dbl$UCL_log2 < -1]
+length(unique(female_biased_dc_x2$gene)) # 380 female biased # # no outliers = 381
+female_biased_dc_x2_for <- female_biased_dc_x2[leg == "for"]
+female_biased_dc_x2_mid <- female_biased_dc_x2[leg == "mid"]
+length(female_biased_dc_x2_for$gene[-which(female_biased_dc_x2_for$gene %in% female_biased_dc_x2_mid$gene)])
+
+#
+
+male_biased_dm_x2 <- dm_dbl[dm_dbl$LCL_log2 > 1]
+length(unique(male_biased_dm_x2$gene)) # 173
+male_biased_dm_x2_for <- male_biased_dm_x2[leg == "for"]
+male_biased_dm_x2_mid <- male_biased_dm_x2[leg == "mid"]
+length(male_biased_dm_x2_for$gene[-which(male_biased_dm_x2_for$gene %in% male_biased_dm_x2_mid$gene)])
+
+female_biased_dm_x2 <- dm_dbl[dm_dbl$UCL_log2 < -1]
+length(unique(female_biased_dm_x2$gene)) # 380 female biased # # no outliers = 381
+female_biased_dm_x2_for <- female_biased_dm_x2[leg == "for"]
+female_biased_dm_x2_mid <- female_biased_dm_x2[leg == "mid"]
+length(female_biased_dm_x2_for$gene[-which(female_biased_dm_x2_for$gene %in% female_biased_dm_x2_mid$gene)])
+
+
+genes_of_interest_male <- male_biased_dp_x2_for$gene[-which(male_biased_dp_x2_for$gene %in% male_biased_dp_x2_mid$gene)]
+
+write.table(genes_of_interest_male, "../../outputs/genes_of_interest_male", quote = F, col.names = F, row.names = F)
+
+genes_of_interest_female <- female_biased_dp_x2_for$gene
+
+write.table(genes_of_interest_female, "../../outputs/genes_of_interest_female", quote = F, col.names = F, row.names = F)
+
+#
+```
+
+I want to find the magnitude of expression for each sex in each leg, stage, and species
+
+```{r}
+
+# first I need all biased genes broken down into each sex, stage, and leg
+
+dp_mb_for_early <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "for" & dp$stage == "early"]
+dp_mb_mid_early <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "mid" & dp$stage == "early"]
+dp_mb_for_late <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "for" & dp$stage == "late"]
+dp_mb_mid_late <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "mid" & dp$stage == "late"]
+
+dp_fb_for_early <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "for" & dp$stage == "early"]
+dp_fb_mid_early <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "mid" & dp$stage == "early"]
+dp_fb_for_late <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "for" & dp$stage == "late"]
+dp_fb_mid_late <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "mid" & dp$stage == "late"]
+
+dc_mb_for_early <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "for" & dc$stage == "early"]
+dc_mb_mid_early <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "mid" & dc$stage == "early"]
+dc_mb_for_late <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "for" & dc$stage == "late"]
+dc_mb_mid_late <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "mid" & dc$stage == "late"]
+
+dc_fb_for_early <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "for" & dc$stage == "early"]
+dc_fb_mid_early <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "mid" & dc$stage == "early"]
+dc_fb_for_late <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "for" & dc$stage == "late"]
+dc_fb_mid_late <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "mid" & dc$stage == "late"]
+
+dm_mb_for_early <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "for" & dm$stage == "early"]
+dm_mb_mid_early <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "mid" & dm$stage == "early"]
+dm_mb_for_late <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "for" & dm$stage == "late"]
+dm_mb_mid_late <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "mid" & dm$stage == "late"]
+
+dm_fb_for_early <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "for" & dm$stage == "early"]
+dm_fb_mid_early <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "mid" & dm$stage == "early"]
+dm_fb_for_late <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "for" & dm$stage == "late"]
+dm_fb_mid_late <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "mid" & dm$stage == "late"]
+
+templist <- list(dp_mb_for_early,dp_mb_mid_early,dp_mb_for_late,dp_mb_mid_late,dp_fb_for_early,dp_fb_mid_early,dp_fb_for_late,dp_fb_mid_late,dc_mb_for_early,dc_mb_mid_early,dc_mb_for_late,dc_mb_mid_late,dc_fb_for_early,dc_fb_mid_early,dc_fb_for_late,dc_fb_mid_late,dm_mb_for_early,dm_mb_mid_early,dm_mb_for_late,dm_mb_mid_late,dm_fb_for_early,dm_fb_mid_early,dm_fb_for_late,dm_fb_mid_late)
+
+easy_norm <- function(x) {sqrt(sum(x^2))/length(x)}
+
+#lapply(templist, easy_norm)
+
+# sampling with replacement for bootstrapping 
+boot_norm_function <- function(x){
+    x_resample <- sample(x, replace = TRUE)
+    norm_resample <- norm(as.matrix(x_resample), type = "2")/length(x_resample)
+    return(norm_resample)
+  }
+
+mag_mat <- matrix(nrow = 24, ncol = 3)
+x <- 1
+
+for (i in templist) {
+  mag_mat[x,1] <- easy_norm(i)
+  mag_mat[x,2:3] <- quantile(replicate(10000, boot_norm_function(i)), probs = c(0.025, 0.975), na.rm = T)
+  x <- x + 1
+}
+
+row.names(mag_mat) <- c("dp_mb_for_early","dp_mb_mid_early","dp_mb_for_late","dp_mb_mid_late","dp_fb_for_early","dp_fb_mid_early","dp_fb_for_late","dp_fb_mid_late","dc_mb_for_early","dc_mb_mid_early","dc_mb_for_late","dc_mb_mid_late","dc_fb_for_early","dc_fb_mid_early","dc_fb_for_late","dc_fb_mid_late","dm_mb_for_early","dm_mb_mid_early","dm_mb_for_late","dm_mb_mid_late","dm_fb_for_early","dm_fb_mid_early","dm_fb_for_late","dm_fb_mid_late")
+
+colnames(mag_mat) <- c("magnitude","LCL","UCL")
+
+SSD <- fread("../../data/rhop_clade_SSD.csv")
+
+SSD <- SSD[cohort == "C0" & trait != "thoraxL" & species != "fuy"]
+
+pro_fore <- sum(SSD$SSD_measure[SSD$species =="pro"][1:2]) * -1
+pro_mid <- sum(SSD$SSD_measure[SSD$species =="pro"][7:8]) * -1
+
+car_fore <- sum(SSD$SSD_measure[SSD$species =="car"][1:2]) * -1
+car_mid <- sum(SSD$SSD_measure[SSD$species =="car"][7:8]) * -1
+
+mel_SSD <- fread("../../data/pengal4_clean.csv")
+
+mel_SSD <- mel_SSD[code == "control"]
+
+mel_SSD$sex <- relevel(as.factor(mel_SSD$sex), ref = "M")
+
+mel_mod <- glmmTMB(length ~ trait*sex + (1|rep),
+        data = mel_SSD)
+
+mel_contrast <- as.data.table(emmeans(mel_mod, pairwise ~ sex | trait)[[2]])
+
+mel_fore <- sum(mel_contrast$estimate[1:2])
+mel_mid <- sum(mel_contrast$estimate[3:4])
+
+SSD_estimates <- c(rep(c(pro_fore,pro_mid), 4),rep(c(car_fore,car_mid), 4),rep(c(mel_fore,mel_mid), 4))
+
+sexes <- rep(c(rep("male",4), rep("female", 4)), 3)
+SBGs <- unlist(lapply(list(dp_mb_for_early,dp_mb_mid_early,dp_mb_for_late,dp_mb_mid_late,dp_fb_for_early,dp_fb_mid_early,dp_fb_for_late,dp_fb_mid_late,dc_mb_for_early,dc_mb_mid_early,dc_mb_for_late,dc_mb_mid_late,dc_fb_for_early,dc_fb_mid_early,dc_fb_for_late,dc_fb_mid_late,dm_mb_for_early,dm_mb_mid_early,dm_mb_for_late,dm_mb_mid_late,dm_fb_for_early,dm_fb_mid_early,dm_fb_for_late,dm_fb_mid_late), length))
+
+mag_mat_final <- as.data.table(cbind(mag_mat,SSD_estimates,c(rep("pro",8),rep("car",8),rep("mel",8)), sexes, rep(c("fore","mid"),12), rep(c("early","early","late","late"), 6), SBGs))
+
+
+mag_mat_final[,1:4] <- lapply(mag_mat_final[,1:4], as.numeric)
+colnames(mag_mat_final)[5] <- "species"
+colnames(mag_mat_final)[6] <- "sex"
+colnames(mag_mat_final)[7] <- "leg"
+colnames(mag_mat_final)[8] <- "stage"
+colnames(mag_mat_final)[9] <- "SBGs"
+
+colour_vector <- c("fore.female" = "#E66100",
+                   "mid.female" = "orange",
+                   "fore.male" = "#5D3A9B",
+                   "mid.male" = "orchid")
+
+shape_vector <- c("car.early" = 15,
+                  "mel.early" = 17,
+                  "pro.early" = 16,
+                  "car.late" = 0,
+                  "mel.late" = 2,
+                  "pro.late" = 1)
+
+
+mag_plot <- ggplot(mag_mat_final, aes(x = SSD_estimates, y = magnitude, colour = interaction(leg,sex), shape = interaction(species, stage, drop = TRUE) )) +
+  geom_pointrange(aes(ymin = LCL, ymax = UCL), position = position_dodge2(width = 0.075), size = 0.75, alpha = 0.7) +
+  ylab("Magnitude of SBGE") +
+  xlab("Femur SSD (M-F)") +
+  scale_colour_manual(values = colour_vector, labels = c("Female foreleg","Female midleg","Male foreleg","Male midleg"))  +
+  scale_shape_manual(values = shape_vector, labels = c(expression(paste(italic("D. carrolli"), " early")), expression(paste(italic("D. melanogaster"), " early")), expression(paste(italic("D. prolongata"), " early")),
+expression(paste(italic("D. carrolli"), " late")), expression(paste(italic("D. melanogaster"), " late")), expression(paste(italic("D. prolongata"), " late"))), name = "Species and stage") +
+  theme_classic() +
+  labs(shape="Species and stage", colour="Sex and leg")
+
+SBG_plot <- ggplot(mag_mat_final, aes(x = SSD_estimates, y = as.numeric(SBGs), colour = interaction(leg,sex), shape = interaction(species, stage, drop = TRUE) )) +
+  geom_pointrange(aes(ymin = LCL, ymax = UCL), position = position_dodge2(width = 0.075), size = 0.75, alpha = 0.7) +
+  ylab("Number of SBGs") +
+  xlab("Femur SSD (M-F)") +
+  scale_colour_manual(values = colour_vector, labels = c("Female foreleg","Female midleg","Male foreleg","Male midleg"))  +
+  scale_shape_manual(values = shape_vector, labels = c(expression(paste(italic("D. carrolli"), " early")), expression(paste(italic("D. melanogaster"), " early")), expression(paste(italic("D. prolongata"), " early")),
+expression(paste(italic("D. carrolli"), " late")), expression(paste(italic("D. melanogaster"), " late")), expression(paste(italic("D. prolongata"), " late"))), name = "Species and stage") +
+  theme_classic() +
+  labs(shape="Species and stage", colour="Sex and leg")
+
+SBG_plot+mag_plot + plot_layout(guides = 'collect')
+
+```
+
+
+# plotting reaction norms for L2F D. prolongata genes compared to other species
+```{r}
+#log2_genes <- fread("../../outputs/log2DiffExp_prolongata_genes.csv")
+
+genesOfInterest <- unique(dp_interestingGenes$gene)
+
+
+dp_complete <- dp[which(dp$gene %in% genesOfInterest)]
+dp_complete$species <- "prolongata"
+dm_complete <- dm[which(dm$gene %in% genesOfInterest)]
+dm_complete$species <- "melanogaster"
+dc_complete <- dc[which(dc$gene %in% genesOfInterest)]
+dc_complete$species <- "carrolli"
+
+allRows <- rbind(dp_complete,dm_complete,dc_complete)
+
+step1 <- melt(allRows, id.vars = c("gene","leg","stage","species"), measure.vars = c("estimate_log2","LCL_log2","UCL_log2","p"))
+
+plotting_data <- dcast(step1, gene + stage + species + leg ~ variable, mean)
+
+colnames(plotting_data) <- c("gene","stage","species","leg","estimate","LCL","UCL","p")
+
+pdf("../../paper/Final_Figures/Supplemental_reactionNorms.pdf",width=5,height=3)
+
+for(i in unique(plotting_data$gene)) {
+
+this_gene <- i
+
+current_gene <- plotting_data[plotting_data$gene == this_gene,] 
+
+
+geneplot <- ggplot(current_gene, aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(color = species,ymin = LCL, ymax = UCL), size = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = this_gene) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species, colour = species), fun = mean, geom = "path",position = position_dodge(width = 0.5))
+
+print(geneplot)
+
+}
+
+dev.off()
+```
+
+Below I plot a subset of genes that we tested RNAi lines for
+```{r}
+
+figure_genes <- c("dysf","grn","Sox15","CG30457","CG13285","bab1","otp")
+
+dp_complete <- dp[which(dp$gene %in% figure_genes)]
+dp_complete$species <- "prolongata"
+dm_complete <- dm[which(dm$gene %in% figure_genes)]
+dm_complete$species <- "melanogaster"
+dc_complete <- dc[which(dc$gene %in% figure_genes)]
+dc_complete$species <- "carrolli"
+
+allRows <- rbind(dp_complete,dm_complete,dc_complete)
+
+step1 <- melt(allRows, id.vars = c("gene","leg","stage","species"), measure.vars = c("estimate_log2","LCL_log2","UCL_log2","p"))
+
+plotting_data <- dcast(step1, gene + stage + species + leg ~ variable, mean)
+
+colnames(plotting_data) <- c("gene","stage","species","leg","estimate","LCL","UCL","p")
+
+plotting_data$species <- gsub('^', 'D. ', plotting_data$species)
+
+#plotting_data$species <- expression(italic(plotting_data$species))
+
+plotting_data$leg <- sub("for","foreleg",plotting_data$leg)
+plotting_data$leg <- sub("mid","midleg",plotting_data$leg)
+
+otp <- filter(plotting_data, gene == "otp") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("orthopedia"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+dysf <- filter(plotting_data, gene == "dysf") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("dysfusion"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+grn <- filter(plotting_data, gene == "grn") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("grain"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+Sox15 <- filter(plotting_data, gene == "Sox15") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("sox box protein 15"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+CG30457 <- filter(plotting_data, gene == "CG30457") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("CG30457"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  xlab(NULL) +
+  ylab("Gene expression estimate\n(Male-Female)")
+
+CG13285 <- filter(plotting_data, gene == "CG13285") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("CG13285"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+bab1 <- filter(plotting_data, gene == "bab1") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("bric-a-brac1"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ylab(NULL) +
+  xlab(NULL)
+
+design <- "ab
+           cd
+           ef
+           gh"
+
+dysf+
+  grn+
+  CG30457+
+  CG13285+
+  Sox15+
+  bab1+
+  otp+
+  guide_area()+
+  plot_layout(
+    design = design, 
+    guides = "collect"
+  )
+
+
+```
+
+The below block of code plots reaction norms for the sexes separately to look at expression levels rather than a contrast.
+
+```{r}
+
+mf_dp_complete <- mf_dp[which(mf_dp$gene %in% genesOfInterest)]
+mf_dp_complete$species <- "prolongata"
+mf_dm_complete <- mf_dm[which(mf_dm$gene %in% genesOfInterest)]
+mf_dm_complete$species <- "melanogaster"
+mf_dc_complete <- mf_dc[which(mf_dc$gene %in% genesOfInterest)]
+mf_dc_complete$species <- "carrolli"
+
+
+
+mf_allRows <- rbind(mf_dp_complete,mf_dm_complete,mf_dc_complete)
+
+step1 <- melt(mf_allRows, id.vars = c("gene","sex","leg","stage","species"), measure.vars = c("estimate_log2","LCL_log2","UCL_log2"))
+
+
+plotting_data <- dcast(step1, gene + sex + stage + species + leg ~ variable, sum)
+
+pdf("../../paper/Figures/DEG_reactionNorms_MFseperate.pdf",width=5,height=3)
+
+for(i in unique(plotting_data$gene)) {
+
+this_gene <- i
+
+current_gene <- plotting_data[plotting_data$gene == this_gene,] 
+
+
+geneplot <- ggplot(current_gene, aes(x = leg, y = estimate_log2, shape = sex)) +
+  geom_pointrange(aes(color = species, ymin = LCL_log2, ymax = UCL_log2), size = 0.2, position = position_dodge(width = 0.5)) +
+  labs(title = this_gene) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = interaction(species, sex), colour = species), fun = mean, geom = "line", position = position_dodge2(width = 0.5))
+
+print(geneplot)
+
+}
+
+dev.off()
+
+```
+
+Below is the scripts for the MA plots with ashr estimates
+
+```{r}
+# MA plotting
+
+temp_dp <- dcast(mf_dp, gene + leg + stage ~ sex, value.var = "estimate_log2")
+temp_dp$mean <- (temp_dp$F + temp_dp$M) / 2
+#temp_dp$fold <- (temp_dp$M - temp_dp$F)
+MA_dp <- merge(temp_dp, dp, by = c("gene","leg","stage"))
+
+dp_FE <-MA_dp %>%
+        filter(leg == "for" & stage == "early") %>%
+        ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+          ylim(c(-10, 10)) +
+          xlim(c(0,25)) +
+          ylab("Log2 M-F prolongata") +
+          xlab(NULL) +
+          scale_color_manual(values=c("darkgrey","darkred")) +
+          theme_classic() +
+          geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dp_FL <-MA_dp %>%
+  filter(leg == "for" & stage == "late") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dp_ME <-MA_dp %>%
+  filter(leg == "mid" & stage == "early") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("FC M-F prolongata") +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dp_ML <-MA_dp %>%
+  filter(leg == "mid" & stage == "late") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+
+temp_dm <- dcast(mf_dm, gene + leg + stage ~ sex, value.var = "estimate_log2")
+temp_dm$mean <- (temp_dm$F + temp_dm$M) / 2
+#temp_dp$fold <- (temp_dp$M - temp_dp$F)
+MA_dm <- merge(temp_dm, dm, by = c("gene","leg","stage"))
+
+dm_FE <-MA_dm %>%
+  filter(leg == "for" & stage == "early") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("Log2 M-F melanogaster") +
+  xlab("Log2 mean expression early") +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dm_FL <-MA_dm %>%
+  filter(leg == "for" & stage == "late") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab("Log2 mean expression late") +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dm_ME <-MA_dm %>%
+  filter(leg == "mid" & stage == "early") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("FC M-F melanogaster") +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dm_ML <-MA_dm %>%
+  filter(leg == "mid" & stage == "late") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+
+
+temp_dc <- dcast(mf_dc, gene + leg + stage ~ sex, value.var = "estimate_log2")
+temp_dc$mean <- (temp_dc$F + temp_dc$M) / 2
+#temp_dp$fold <- (temp_dp$M - temp_dp$F)
+MA_dc <- merge(temp_dc, dc, by = c("gene","leg","stage"))
+
+
+dc_FE <-MA_dc %>%
+  filter(leg == "for" & stage == "early") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("Log2 M-F carrolli") +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dc_FL <-MA_dc %>%
+  filter(leg == "for" & stage == "late") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dc_ME <-MA_dc %>%
+  filter(leg == "mid" & stage == "early") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("FC M-F carrolli") +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dc_ML <-MA_dc %>%
+  filter(leg == "mid" & stage == "late") %>%
+  ggplot(aes(x = mean, y = estimate_log2, colour = LCL_log2 > 0 | UCL_log2 < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+plot_grid(dp_FE,dp_FL,dc_FE,dc_FL,dm_FE,dm_FL,ncol = 2)
+
+plot_grid(dp_ME,dp_ML,dc_ME,dc_ML,dm_ME,dm_ML,ncol = 2)
+
+```
+
+Below is the scripts for the MA plots without ashr estimates
+
+```{r}
+# MA plotting
+
+temp_dp <- dcast(mf_dp, gene + leg + stage ~ sex, value.var = "estimate_log2")
+temp_dp$mean <- (temp_dp$F + temp_dp$M) / 2
+#temp_dp$fold <- (temp_dp$M - temp_dp$F)
+MA_dp <- merge(temp_dp, dp, by = c("gene","leg","stage"))
+
+dp_FE <-MA_dp %>%
+        filter(leg == "for" & stage == "early") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+          ylim(c(-10, 10)) +
+          xlim(c(0,25)) +
+          ylab("Log2 M-F prolongata") +
+          xlab(NULL) +
+          scale_color_manual(values=c("darkgrey","darkred")) +
+          theme_classic() +
+          geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dp_FL <-MA_dp %>%
+  filter(leg == "for" & stage == "late") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dp_ME <-MA_dp %>%
+  filter(leg == "mid" & stage == "early") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("FC M-F prolongata") +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dp_ML <-MA_dp %>%
+  filter(leg == "mid" & stage == "late") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+
+temp_dm <- dcast(mf_dm, gene + leg + stage ~ sex, value.var = "estimate_log2")
+temp_dm$mean <- (temp_dm$F + temp_dm$M) / 2
+#temp_dp$fold <- (temp_dp$M - temp_dp$F)
+MA_dm <- merge(temp_dm, dm, by = c("gene","leg","stage"))
+
+dm_FE <-MA_dm %>%
+  filter(leg == "for" & stage == "early") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("Log2 M-F melanogaster") +
+  xlab("Log2 mean expression early") +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dm_FL <-MA_dm %>%
+  filter(leg == "for" & stage == "late") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab("Log2 mean expression late") +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dm_ME <-MA_dm %>%
+  filter(leg == "mid" & stage == "early") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("FC M-F melanogaster") +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dm_ML <-MA_dm %>%
+  filter(leg == "mid" & stage == "late") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+
+
+temp_dc <- dcast(mf_dc, gene + leg + stage ~ sex, value.var = "estimate_log2")
+temp_dc$mean <- (temp_dc$F + temp_dc$M) / 2
+#temp_dp$fold <- (temp_dp$M - temp_dp$F)
+MA_dc <- merge(temp_dc, dc, by = c("gene","leg","stage"))
+
+
+dc_FE <-MA_dc %>%
+  filter(leg == "for" & stage == "early") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("Log2 M-F carrolli") +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dc_FL <-MA_dc %>%
+  filter(leg == "for" & stage == "late") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab(NULL) +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dc_ME <-MA_dc %>%
+  filter(leg == "mid" & stage == "early") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab("FC M-F carrolli") +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+dc_ML <-MA_dc %>%
+  filter(leg == "mid" & stage == "late") %>%
+        ggplot(aes(x = mean, y = log2(exp(estimate)), colour = log2(exp(LCL)) > 0 | log2(exp(UCL)) < 0 )) +
+  ylim(c(-10, 10)) +
+  xlim(c(0,25)) +
+  ylab(NULL) +
+  xlab("Log2 mean expression late") +
+  scale_color_manual(values=c("darkgrey","darkred")) +
+  theme_classic() +
+  geom_point(alpha = 0.5, size = 0.5, show.legend = FALSE)
+
+plot_grid(dp_FE,dp_FL,dc_FE,dc_FL,dm_FE,dm_FL,ncol = 2)
+
+plot_grid(dp_ME,dp_ML,dc_ME,dc_ML,dm_ME,dm_ML,ncol = 2)
+
+```

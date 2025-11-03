@@ -1,0 +1,145 @@
+---
+title: "From Estimates to distances etc.."
+author: "ID and TA"
+date: "`r format(Sys.time(),'%d %b %Y')`"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(data.table)
+```
+
+below is the Vector correlation functions
+
+```{r}
+
+PD <- function(x) { 
+  sqrt(t(x)%*%x)}
+#this function gives me the vector correlation and angle, and vector magnitude ratio, alpha, between two vectors
+#alpha of 1 means that vector 2 is the same length as vector 1. lower than one means that it is smaller, greater than 1 means that vector 2 is larger
+ang.vec.alph <- function(vec1, vec2) {
+  vec1_c <- vec1 - mean(vec1)
+  vec2_c <- vec2 - mean(vec2)
+  vec.cor <- (t(vec1_c) %*% vec2_c)/(PD(vec1_c)*PD(vec2_c))
+  vec.angle <- acos(vec.cor)*(180/pi)
+  vec.alpha <- PD(vec1)/PD(vec2) # vectors not centered
+  vec.alpha_c <- PD(vec1_c)/PD(vec2_c) # vectors centered
+  
+  vec.ED <- PD(vec2-vec1) #Subtract vector one from vector two and then calculate PD for Euclidean Distance. 
+  ## Do not use vec.ED unless examining mean gene expr vectors. Specifically do not use for fold change
+  return(c(vector.cor = vec.cor, vec.angle=vec.angle, vec.alpha = vec.alpha, vec.alpha_c = vec.alpha_c, vector.ED = vec.ED))} 
+
+
+#The function below will generate two vectors of the same length as the experimental vectors provided to it with the argument 'sig_vec'
+RandomVectorSampler <- function(vec1, vec2, sig_vec) {
+  sig_vector_length <- length(sig_vec)
+  
+  random_index <- sample(1:length(vec1), size = sig_vector_length)
+  sub_vec1 <- na.omit(vec1[random_index])
+  sub_vec2 <- na.omit(vec2[random_index])
+  
+  ang.vec.alph(sub_vec1, sub_vec2)
+}
+
+comment(RandomVectorSampler) <- c("vec1 = vector of complete genelist comparison 1",
+                                  "vec2 = vector of complete genelist comparison 2",
+                                  "sig_vec = vector of significant genes, to get length")
+
+```
+
+
+
+Import in the estimates (natural log scale) for each gene by trait, sex, and stage. Currently one file per species
+
+```{r}
+dc <- na.omit(fread("../../outputs/car_separate.txt"))
+dp <- na.omit(fread("../../outputs/pro_separate.txt"))
+dm <- na.omit(fread("../../outputs/mel_separate.txt"))
+```
+
+
+
+```{r}
+dc <- dc[, c(-1, -8)]
+dp <- dp[, c(-1, -8)]
+dm <- dm[, c(-1, -8)]
+```
+
+```{r}
+dc$species <- "Dcar"
+dp$species <- "Dpro"
+dm$species <- "Dmel"
+```
+
+```{r}
+names(dc) <- c("gene", "sex", "leg", "stage", "estimate", "StdErr", "LCL", "UCL", "species")
+names(dp) <- c("gene", "sex", "leg", "stage", "estimate", "StdErr", "LCL", "UCL", "species")
+names(dm) <- c("gene", "sex", "leg", "stage", "estimate", "StdErr", "LCL", "UCL", "species")
+```
+
+
+
+Just extract estimates for the moment
+
+```{r}
+dc_svelte <- dc[, c(1:5, 9)]
+dp_svelte <- dp[, c(1:5, 9)]
+dm_svelte <- dm[, c(1:5, 9)]
+```
+
+```{r}
+all_species_estimates <- rbind(dc_svelte, dp_svelte, dm_svelte)
+```
+
+
+```{r}
+all_species_estimates_wide <- pivot_wider(all_species_estimates, 
+                                          values_from = "estimate",
+                                          names_from = c("sex", "leg", "stage", "species") )
+```
+
+
+```{r}
+all_species_estimates_wide_no_NA <- na.omit(all_species_estimates_wide)
+```
+
+Let's compute Euclidian distances between all estimates to see how they cluster.
+
+```{r}
+distances_between_estimates <- dist(t(all_species_estimates_wide[,-1]), method = "euclidian")
+```
+
+
+```{r}
+clusters <- hclust(distances_between_estimates)
+```
+
+
+```{r}
+plot(clusters, hang = 0.2, axes = TRUE, ann = FALSE)
+```
+
+```{r}
+rect.hclust(clusters, k = 3)
+```
+
+
+```{r}
+kmeans_estimates <- kmeans(t(all_species_estimates_wide_no_NA[,-1]), centers = 4, nstart = 100)
+
+plot(t(all_species_estimates_wide_no_NA[,-1]), 
+     col = kmeans_estimates$cluster,
+     pch = 20)
+
+points(kmeans_estimates$centers, col = 1:4, pch = 20, cex = 2)
+```
+
+

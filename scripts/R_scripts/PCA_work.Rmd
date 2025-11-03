@@ -1,0 +1,639 @@
+---
+title: "PCA_work"
+author: "Tyler Audet"
+date: "2024-08-13"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages and counts
+```{r}
+
+library(tidyverse)
+library(data.table)
+library(DESeq2)
+library(edgeR)
+library(cowplot)
+library(patchwork)
+
+```
+
+
+The following three blocks of code are just to create the data frames needed for the PCA analysis
+
+Load in pro data
+```{r}
+# Import all the file names
+setwd("../../data/pro/")
+in_dir = dir(, pattern = "ReadsPerGene.out.tab")
+system(paste("wc -l ",in_dir[[1]]))
+# read in counts, sort and put together
+counts_in <- lapply(in_dir, function(x) read.table(x, header=T, sep = "", nrows = 16695))
+counts_sorted <- lapply(counts_in, function(x) x <- x[order(x[,1]),])
+tot_count_matrix <- matrix(unlist(lapply(counts_sorted, function(x) x$V2)), 
+                           nrow=16695, ncol=36)
+
+colnames(tot_count_matrix) <- in_dir
+rownames(tot_count_matrix) <- counts_sorted[[1]][,1]
+notGenes <- grep('N_',rownames(tot_count_matrix))
+#missingGenes <- grep('Missing',rownames(tot_count_matrix))
+tot_count_matrix <- tot_count_matrix[-notGenes,]
+#tot_count_matrix <- tot_count_matrix[-missingGenes,]
+
+# writing out as a table so that I can run this on CC
+write.table(tot_count_matrix, "../../pro_counts.txt", col.names = T)
+```
+
+Load in carrolli
+```{r}
+# Import all the file names
+setwd("../../car/")
+in_dir = dir(, pattern="ReadsPerGene.out.tab")
+system(paste("wc -l ",in_dir[[1]]))
+# read in counts, sort and put together
+counts_in <- lapply(in_dir, function(x) read.table(x, header=T, sep = "", nrows = 16331))
+counts_sorted <- lapply(counts_in, function(x) x <- x[order(x[,1]),])
+tot_count_matrix <- matrix(unlist(lapply(counts_sorted, function(x) x$V2)), 
+                           nrow=16331, ncol=37)
+
+colnames(tot_count_matrix) <- in_dir
+rownames(tot_count_matrix) <- counts_sorted[[1]][,1]
+notGenes <- grep('N_',rownames(tot_count_matrix))
+#missingGenes <- grep('Missing',rownames(tot_count_matrix))
+tot_count_matrix <- tot_count_matrix[-notGenes,]
+#tot_count_matrix <- tot_count_matrix[-missingGenes,]
+
+# writing out as a table so that I can run this on CC
+write.table(tot_count_matrix, "../../car_counts.txt", col.names = T)
+```
+
+Load in melanogaster data
+
+```{r}
+# Import all the file names
+setwd("../../mel/")
+in_dir = dir(, pattern="ReadsPerGene.out.tab")
+system(paste("wc -l ",in_dir[[1]]))
+# read in counts, sort and put together
+counts_in <- lapply(in_dir, function(x) read.table(x, header=T, sep = "", nrows = 17613))
+counts_sorted <- lapply(counts_in, function(x) x <- x[order(x[,1]),])
+tot_count_matrix <- matrix(unlist(lapply(counts_sorted, function(x) x$V2)), 
+                           nrow=17613, ncol=35)
+
+colnames(tot_count_matrix) <- in_dir
+rownames(tot_count_matrix) <- counts_sorted[[1]][,1]
+notGenes <- grep('N_',rownames(tot_count_matrix))
+#missingGenes <- grep('Missing',rownames(tot_count_matrix))
+tot_count_matrix <- tot_count_matrix[-notGenes,]
+#tot_count_matrix <- tot_count_matrix[-missingGenes,]
+
+# writing out as a table so that I can run this on CC
+write.table(tot_count_matrix, "../../mel_counts.txt", col.names = T)
+```
+
+
+The next three blocks of code are to create the DESeq objects that get loaded into the PCA function
+
+
+```{r}
+pro_counts <- read.table("../../../../outputs/pro_counts.txt", header = T)
+
+# Need to make the experimental design matrix
+# This can be taken just from the label I think
+pro_names <- as.data.frame(names(as.data.frame(pro_counts)))
+colnames(pro_names) <- "sample"
+
+pro_design <- separate(pro_names, 
+                       col = "sample", 
+                       into = c("species","sex","leg","stage", "replicate"),
+                       sep = "_", remove = FALSE)
+
+pro_design$replicate <- sub('ReadsPerGene.out.tab', "", pro_design$replicate)
+
+
+pro_design <- pro_design[,-c(1)]
+
+#Need to make my formula for DeSeq
+
+pro_formula <- model.matrix(~ sex * leg * stage + replicate , data = pro_design)
+
+#Naming first column 'gene' and clearing up unnecessary column and first few rows of summary stats
+#rownames(mel_counts) <- mel_counts$gene
+# <- mel_counts[-c(1:4),-1]
+
+
+# create a Dseq differentially expressed gene object
+DGE_object <- DGEList(as.matrix(pro_counts))
+
+#Determine which genes have sufficiently large counts to be retained in a statistical analysis.
+#keep1 <- filterByExpr(DGE_object, mel_formula)
+#DGE_object <- DGE_object[keep, ]
+
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I add one to every count to stop complete seperation issues
+#DGE_object$counts <- DGE_object$counts + 1
+
+# I want to filter my mel_counts by the DGE_object to get mel_counts down to the 11691 genes with sufficient counts
+pro_counts <- pro_counts[row.names(DGE_object$counts),]
+#dim(mel_counts)
+
+pro_counts <- pro_counts + 1
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+pro_data.in <- DESeqDataSetFromMatrix(countData = pro_counts,
+                                  colData = pro_design,
+                                  design = pro_formula)
+pro_data.in <- DESeq2::estimateSizeFactors(pro_data.in)
+```
+
+```{r}
+car_counts <- read.table("../../car_counts.txt", header = T)
+
+#mel_counts <- read.table("../../data/mel_counts.txt", header = T)
+
+#mel_counts <- read.table("~/Desktop/tester.txt", header = T)
+
+
+# Need to make the experimental design matrix
+# This can be taken just from the label I think
+car_names <- as.data.frame(names(as.data.frame(car_counts)))
+colnames(car_names) <- "sample"
+
+car_design <- separate(car_names, 
+                       col = "sample", 
+                       into = c("species","sex","leg","stage", "replicate"),
+                       sep = "_", remove = FALSE)
+
+car_design$replicate <- sub('ReadsPerGene.out.tab', "", car_design$replicate)
+
+
+car_design <- car_design[,-c(1)]
+
+#Need to make my formula for DeSeq
+
+car_formula <- model.matrix(~ sex * leg * stage + replicate , data = car_design)
+
+#Naming first column 'gene' and clearing up unnecessary column and first few rows of summary stats
+#rownames(mel_counts) <- mel_counts$gene
+# <- mel_counts[-c(1:4),-1]
+
+
+# create a Dseq differentially expressed gene object
+DGE_object <- DGEList(as.matrix(car_counts))
+
+#Determine which genes have sufficiently large counts to be retained in a statistical analysis.
+#keep <- filterByExpr(DGE_object, mel_formula)
+#DGE_object <- DGE_object[keep, ]
+# goes from 17611 to 11691, so like 600 genes dropped due to low coverage
+
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I add one to every count to stop complete seperation issues
+#DGE_object$counts <- DGE_object$counts + 1
+
+# I want to filter my mel_counts by the DGE_object to get mel_counts down to the 11691 genes with sufficient counts
+car_counts <- car_counts[row.names(DGE_object$counts),]
+
+car_counts <- car_counts + 1
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+car_data.in <- DESeqDataSetFromMatrix(countData = car_counts,
+                                  colData = car_design,
+                                  design = car_formula)
+car_data.in <- DESeq2::estimateSizeFactors(car_data.in)
+```
+
+
+```{r}
+mel_counts <- read.table("../../mel_counts.txt", header = T)
+
+#mel_counts <- read.table("../../data/mel_counts.txt", header = T)
+
+#mel_counts <- read.table("~/Desktop/tester.txt", header = T)
+
+
+# Need to make the experimental design matrix
+# This can be taken just from the label I think
+mel_names <- as.data.frame(names(as.data.frame(mel_counts)))
+colnames(mel_names) <- "sample"
+
+mel_names$sample <- sub('ReadsPerGene.out.tab', "", mel_names$sample)
+
+
+mel_design <- separate(mel_names, 
+                       col = "sample", 
+                       into = c("species","sex","leg","stage", "replicate"),
+                       sep = "_", remove = FALSE)
+
+
+
+mel_design <- mel_design[,-c(1)]
+
+#Need to make my formula for DeSeq
+
+mel_formula <- model.matrix(~ sex * leg * stage + replicate , data = mel_design)
+
+#Naming first column 'gene' and clearing up unnecessary column and first few rows of summary stats
+#rownames(mel_counts) <- mel_counts$gene
+# <- mel_counts[-c(1:4),-1]
+
+
+# create a Dseq differentially expressed gene object
+DGE_object <- DGEList(as.matrix(mel_counts))
+
+#Determine which genes have sufficiently large counts to be retained in a statistical analysis.
+#keep1 <- filterByExpr(DGE_object, mel_formula)
+#DGE_object <- DGE_object[keep, ]
+# goes from 17611 to 11691, so like 600 genes dropped due to low coverage
+
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I add one to every count to stop complete seperation issues
+#DGE_object$counts <- DGE_object$counts + 1
+
+# I want to filter my mel_counts by the DGE_object to get mel_counts down to the 11691 genes with sufficient counts
+mel_counts <- mel_counts[row.names(DGE_object$counts),]
+
+mel_counts <- mel_counts + 1
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+mel_data.in <- DESeqDataSetFromMatrix(countData = mel_counts,
+                                  colData = mel_design,
+                                  design = mel_formula)
+mel_data.in <- DESeq2::estimateSizeFactors(mel_data.in)
+```
+
+
+Sparsity plots for the three species
+```{r}
+
+plotSparsity(pro_data.in, normalized = TRUE, 
+             col = rgb(0,0,1, 0.15), pch = 20)
+plotSparsity(car_data.in, normalized = TRUE, 
+             col = rgb(0,0,1, 0.15), pch = 20)
+plotSparsity(mel_data.in, normalized = TRUE, 
+             col = rgb(0,0,1, 0.15), pch = 20)
+
+```
+
+
+
+```{r}
+#vsn and rlog
+#for_pca_rlog <- rlog(data.in, 
+#                blind = TRUE)
+
+
+pro_pca <- rlog(pro_data.in, 
+                     blind = TRUE)
+car_pca <- rlog(car_data.in, 
+                     blind = TRUE)
+mel_pca <- rlog(mel_data.in, 
+                     blind = TRUE)
+
+###
+
+plotPCA(pro_pca, 
+        intgroup=c("sex", "leg"),
+        ntop = 1000,
+        pcsToUse = c(1,2)) +
+  theme_bw()
+
+plotPCA(car_pca, 
+        intgroup=c("sex", "leg", "stage"),
+        ntop = 1000,
+        pcsToUse = c(1,2)) +
+  theme_bw()
+
+plotPCA(mel_pca, 
+        intgroup=c("sex", "leg", "stage"),
+        ntop = 1000,
+        pcsToUse = c(1,2)) +
+  theme_bw()
+
+###
+
+pro_pca_data <- plotPCA(pro_pca, 
+        intgroup=c("sex", "leg", "stage"),
+        ntop = 1000,
+        pcsToUse = c(3,4),
+        returnData=TRUE)
+pro_percentVar <- round(100 * attr(pro_pca_data, "percentVar"))
+
+car_pca_data <- plotPCA(car_pca, 
+        intgroup=c("sex", "leg", "stage"),
+        ntop = 1000,
+        pcsToUse = c(3,4),
+        returnData=TRUE)
+car_percentVar <- round(100 * attr(car_pca_data, "percentVar"))
+
+mel_pca_data <- plotPCA(mel_pca, 
+        intgroup=c("sex", "leg", "stage"),
+        ntop = 1000,
+        pcsToUse = c(3,4),
+        returnData=TRUE)
+mel_percentVar <- round(100 * attr(mel_pca_data, "percentVar"))
+
+
+colour_vector <- c("for.F" = "#E66100",
+                   "mid.F" = "orange",
+                   "for.M" = "#5D3A9B",
+                   "mid.M" = "orchid")
+
+
+
+p1 <- ggplot(pro_pca_data, aes(PC3,PC4, colour=interaction(leg,sex), shape=stage)) +
+     geom_point(size=4.5, alpha = 0.5) +
+     xlab(paste0("PC3: ",pro_percentVar[1],"% variance")) +
+     ylab(paste0("PC4: ",pro_percentVar[2],"% variance")) + 
+     coord_fixed() +
+  scale_color_manual(values=colour_vector,labels = c("Female foreleg", "Female midleg","Male foreleg", "Male midleg"), name = "Sex and leg") +
+  theme_classic() +
+  #theme(legend.position="none") +
+  labs(title = "D. prolongata") +
+  theme(plot.title = element_text(face = "italic")) +
+  ylim(c(-26,26)) +
+  xlim(c(-26,26)) +
+  scale_shape_manual(values = c(16, 1), labels = c("Early development", "Late development"), name = "Stage")
+
+
+p2 <-  ggplot(car_pca_data, aes(PC3,PC4, colour=interaction(leg,sex), shape=stage)) +
+     geom_point(size=4.5, alpha = 0.5) +
+     xlab(paste0("PC3: ",car_percentVar[1],"% variance")) +
+     ylab(paste0("PC4: ",car_percentVar[2],"% variance")) + 
+     coord_fixed() +
+  scale_color_manual(values=colour_vector,labels = c("Female foreleg", "Female midleg","Male foreleg", "Male midleg"), name = "Sex and leg") +
+  theme_classic() +
+  #theme(legend.position="none") +
+  labs(title = "D. carrolli") +
+  theme(plot.title = element_text(face = "italic")) +
+  ylim(c(-26,26)) +
+  xlim(c(-26,26)) +
+  scale_shape_manual(values = c(15, 0)) +
+  theme(legend.position = "none")
+#, labels = c("Early development", "Late development"), name = "Stage")
+
+
+p3 <-  ggplot(mel_pca_data, aes(PC3,PC4, colour=interaction(leg,sex), shape=stage)) +
+     geom_point(size=4.5, alpha = 0.5) +
+     xlab(paste0("PC3: ",mel_percentVar[1],"% variance")) +
+     ylab(paste0("PC4: ",mel_percentVar[2],"% variance")) + 
+     coord_fixed() +
+   scale_color_manual(values=colour_vector,labels = c("Female foreleg", "Female midleg","Male foreleg", "Male midleg"), name = "Sex and leg") +
+  theme_classic() +
+  #theme(legend.position="none") +
+  labs(title = "D. melanogaster") +
+  theme(plot.title = element_text(face = "italic")) +
+  ylim(c(-26,26)) +
+  xlim(c(-26,26)) +
+  scale_shape_manual(values = c(17, 2), labels = c("Early development", "Late development"), name = "Stage") +
+  theme(legend.position = "none")
+
+
+#legend <- get_legend(dummy_PCA_plot)
+
+# patchwork plotting
+
+design <- "AB
+           CD"
+
+p1 + p2 + p3 + guide_area() +
+  plot_layout(guides = 'collect')
+
+#plot_grid(pro_PCA_plot,car_PCA_plot,mel_PCA_plot,legend)
+
+###
+
+
+
+
+```
+
+
+I want to put all the species together. First I merge all the overlapping genes.
+
+```{r}
+
+test <- merge(mel_counts, car_counts, by = 0)
+
+rownames(test) <- test$Row.names
+test <- test[,-1]
+
+merged_df <- merge(test, pro_counts, by = 0) 
+rownames(merged_df) <- merged_df$Row.names
+
+grn <- read.table(file = "../../../../outputs/grn_targetGenes.txt")
+
+merged_grn <- merged_df[merged_df[,1] %in% grn$V1,]
+
+merged_df <- merged_df[,-1]
+merged_grn <- merged_grn[,-1]
+
+```
+
+
+```{r}
+merged_names <- as.data.frame(names(as.data.frame(merged_df)))
+colnames(merged_names) <- "sample"
+
+merged_design <- separate(merged_names, 
+                       col = "sample", 
+                       into = c("species","sex","leg","stage", "replicate"),
+                       sep = "_", remove = FALSE)
+
+merged_design$replicate <- sub('ReadsPerGene.out.tab', "", merged_design$replicate)
+
+
+merged_design <- merged_design[,-c(1)]
+
+#Need to make my formula for DeSeq
+
+merged_formula <- model.matrix(~ sex * leg * stage + replicate , data = merged_design)
+
+#Naming first column 'gene' and clearing up unnecessary column and first few rows of summary stats
+#rownames(mel_counts) <- mel_counts$gene
+# <- mel_counts[-c(1:4),-1]
+
+
+# create a Dseq differentially expressed gene object
+DGE_object <- DGEList(as.matrix(merged_df))
+
+#Determine which genes have sufficiently large counts to be retained in a statistical analysis.
+#keep1 <- filterByExpr(DGE_object, mel_formula)
+#DGE_object <- DGE_object[keep, ]
+
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I add one to every count to stop complete seperation issues
+#DGE_object$counts <- DGE_object$counts + 1
+
+# I want to filter my mel_counts by the DGE_object to get mel_counts down to the 11691 genes with sufficient counts
+merged_df <- merged_df[row.names(DGE_object$counts),]
+#dim(mel_counts)
+
+merged_df <- merged_df + 1
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+merged_data.in <- DESeqDataSetFromMatrix(countData = merged_df,
+                                  colData = merged_design,
+                                  design = merged_formula)
+merged_data.in <- DESeq2::estimateSizeFactors(merged_data.in)
+
+```
+
+
+```{r}
+merged_pca <- rlog(merged_data.in, 
+                     blind = TRUE)
+```
+
+
+```{r}
+### Everything
+
+plotPCA(merged_pca, pcsToUse = c(1,2),
+        intgroup=c("species","sex", "leg", "stage"),
+        ntop = 1000) +
+  theme_bw()
+
+# for plotting
+merged_PCA_data <- plotPCA(merged_pca, pcsToUse = c(1,2),
+        intgroup=c("species","sex", "leg", "stage"),
+        returnData=TRUE,
+        ntop = 1000)
+percentVar <- round(100 * attr(merged_PCA_data, "percentVar"))
+
+## Species Figure S3
+
+colour_vector <- c("for.F" = "#E66100",
+                   "mid.F" = "orange",
+                   "for.M" = "#5D3A9B",
+                   "mid.M" = "orchid")
+
+shape_vector <- c("car.early" = 15,
+                  "mel.early" = 17,
+                  "pro.early" = 16,
+                  "car.late" = 0,
+                  "mel.late" = 2,
+                  "pro.late" = 1)
+
+
+PC1_PC2 <- ggplot(merged_PCA_data, aes(PC1,PC2, colour=interaction(leg,sex), shape=interaction(species,stage), group = species, )) +
+     geom_point(size=4.5, alpha = 0.5) +
+     xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+     ylab(paste0("PC2: ",percentVar[2],"% variance")) + 
+     coord_fixed() +
+     scale_color_manual(values=colour_vector,labels = c("Female foreleg", "Male foreleg","Female midleg", "Male midleg"), name = "Sex and leg") +
+  theme_classic() +
+  scale_shape_manual(values = shape_vector, labels = c(expression(paste(italic("D. carrolli "), "early")), expression(paste(italic("D. melanogaster "), "early")),
+expression(paste(italic("D. prolongata "), "early")),
+expression(paste(italic("D. carrolli "), "late")),
+expression(paste(italic("D. melanogaster "), "late")),
+expression(paste(italic("D. prolongata "), "late"))),
+name = "Species and stage")
+
+##
+
+merged_PCA_data <- plotPCA(merged_pca, pcsToUse = c(3,4),
+        intgroup=c("species","sex", "leg", "stage"),
+        returnData=TRUE,
+        ntop = 1000)
+percentVar <- round(100 * attr(merged_PCA_data, "percentVar"))
+
+## Species Figure S3
+
+PC3_PC4 <- ggplot(merged_PCA_data, aes(PC3,PC4, colour=interaction(leg,sex), shape=interaction(species,stage), group = species, )) +
+     geom_point(size=4.5, alpha = 0.5) +
+     xlab(paste0("PC3: ",percentVar[1],"% variance")) +
+     ylab(paste0("PC4: ",percentVar[2],"% variance")) + 
+     coord_fixed() +          scale_color_manual(values=colour_vector,labels = c("Female foreleg", "Male Foreleg","Female midleg", "Male midleg"), name = "Sex and leg") +
+  theme_classic() +
+  scale_shape_manual(values = shape_vector, labels = c(expression(paste(italic("D. carrolli "), "early")), expression(paste(italic("D. melanogaster "), "early")),
+expression(paste(italic("D. prolongata "), "early")),
+expression(paste(italic("D. carrolli "), "late")),
+expression(paste(italic("D. melanogaster "), "late")),
+expression(paste(italic("D. prolongata "), "late"))),
+name = "Species and stage") +
+  theme(legend.position = "none")
+##
+
+
+(PC1_PC2 / PC3_PC4) +
+  plot_layout(guides = 'collect')
+
+```
+
+
+```{r}
+
+DGE_object <- DGEList(as.matrix(merged_grn))
+
+
+smallestGroupSize <- 4
+keep <- rowSums(DGE_object$counts >= 10) >= smallestGroupSize
+DGE_object <- DGE_object[keep,]
+
+# I add one to every count to stop complete seperation issues
+#DGE_object$counts <- DGE_object$counts + 1
+
+# I want to filter my mel_counts by the DGE_object to get mel_counts down to the 11691 genes with sufficient counts
+merged_grn <- merged_grn[row.names(DGE_object$counts),]
+#dim(mel_counts)
+
+merged_grn <- merged_grn + 1
+
+# DESeqDataSet is a subclass of RangedSummarizedExperiment, used to store the input values, intermediate calculations and results of an analysis of differential expression
+merged_data.in <- DESeqDataSetFromMatrix(countData = merged_grn,
+                                  colData = merged_design,
+                                  design = merged_formula)
+merged_data.in <- DESeq2::estimateSizeFactors(merged_data.in)
+
+
+merged_grn_pca <- rlog(merged_data.in, 
+                     blind = TRUE)
+
+### Everything
+
+plotPCA(merged_grn_pca, pcsToUse = c(1,2),
+        intgroup=c("species","sex", "leg", "stage"),
+        ntop = 1000) +
+  theme_bw()
+
+# for plotting
+merged_PCA_data <- plotPCA(merged_grn_pca, pcsToUse = c(2,3),
+        intgroup=c("species","sex", "leg", "stage"),
+        returnData=TRUE,
+        ntop = 750)
+percentVar <- round(100 * attr(merged_PCA_data, "percentVar"))
+
+## Species figure
+
+ggplot(merged_PCA_data, aes(PC2,PC3, colour=interaction(sex,leg), shape=interaction(species,stage), group = species, )) +
+     geom_point(size=3, alpha = 0.5) +
+     xlab(paste0("PC2: ",percentVar[1],"% variance")) +
+     ylab(paste0("PC3: ",percentVar[2],"% variance")) + 
+     coord_fixed() +
+  #facet_grid(~sex) +
+  scale_color_manual(values=c("#E66100","orchid","orange","#5D3A9B")) +
+  #stat_ellipse(aes(x=PC1, y=PC2,color=group),type = "norm", alpha = 0.25) +
+  theme_classic()
+##
+```
+
+
+
+

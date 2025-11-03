@@ -1,0 +1,16 @@
+	STAR --runMode genomeGenerate --runThreadN 16 --genomeDir /home/audett/projects/def-idworkin/audett/prolongata/genome/prolongata --genomeFastaFiles /home/audett/projects/def-idworkin/audett/prolongata/genome/prolongata/prolongata_genome.fa --sjdbGTFfile /home/audett/projects/def-idworkin/audett/prolongata/genome/prolongata/prolongataSaPa_WGS-DeDup_agat.gtf --sjdbOverhang 100 --genomeSAindexNbases 12
+	STAR version: 2.7.11b   compiled: 2024-05-29T23:13:52+00:00 node2:/tmp/ebuser/avx2/STAR/2.7.11b/GCCcore-12.3-gentoo/STAR-2.7.11b/source
+Nov 17 11:31:14 ..... started STAR run
+Nov 17 11:31:14 ... starting to generate Genome files
+Nov 17 11:31:17 ..... processing annotations GTF
+Nov 17 11:31:20 ... starting to sort Suffix Array. This may take a long time...
+Nov 17 11:31:21 ... sorting Suffix Array chunks and saving them to disk...
+Nov 17 11:31:38 ... loading chunks from disk, packing SA...
+Nov 17 11:31:42 ... finished generating suffix array
+Nov 17 11:31:42 ... generating Suffix Array index
+Nov 17 11:31:55 ... completed Suffix Array index
+Nov 17 11:31:55 ..... inserting junctions into the genome indices
+Nov 17 11:32:07 ... writing Genome to disk ...
+Nov 17 11:32:07 ... writing Suffix Array to disk ...
+Nov 17 11:32:08 ... writing SAindex to disk
+Nov 17 11:32:08 ..... finished successfully

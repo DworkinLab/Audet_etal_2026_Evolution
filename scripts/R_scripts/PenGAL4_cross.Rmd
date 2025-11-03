@@ -1,0 +1,344 @@
+---
+title: "PenGAL4 cross"
+author: "Tyler Audet"
+date: "2025-03-20"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(ggbeeswarm)
+library(data.table)
+library(emmeans)
+library(glmmTMB)
+library(patchwork)
+library(insight)
+```
+
+```{r}
+ddat <- fread("../../data/pengal4_data.csv", header = T)
+
+# remove headers that are mixed in from cat-ing the files together
+ddat <- ddat[-grep("Label",ddat$Label)]
+
+# pull out the micrometer measurements
+micrometer <- ddat[grep("meter",ddat$Label)]
+ddat <- ddat[-grep("meter",ddat$Label)]
+
+# separate out the columns of interest
+ddat <- cbind(ddat, fread(text = ddat$Label, sep = "_", 
+                  header = F))
+
+table(ddat[,10])
+
+# extract the columns I care about, and label them
+ddat$trait <- paste(ddat$V5,ddat$FemurLength)
+ddat <- ddat[,c(11,12,13,15,16,17,8)]
+colnames(ddat) <- c("gene","rep","temp","sex","indv","trait","length")
+
+# change my replicate from the sex of the RNAi to a number, and clean variables
+ddat$rep <- sub("M","1",ddat$rep)
+ddat$rep <- sub("F","2",ddat$rep)
+ddat$sex <- sub("f","F",ddat$sex)
+ddat$indv <- sub(".tif","",ddat$indv)
+ddat$trait <- sub("mid","Mid",ddat$trait)
+ddat$trait <- sub("Thorax Thorax","Thorax",ddat$trait)
+ddat$trait <- sub(" ","",ddat$trait)
+ddat$temp <- as.factor(ddat$temp)
+ddat$length <- as.numeric(ddat$length)
+
+ddat$gene <- as.factor(ddat$gene)
+
+ddat$code <- ddat$gene
+
+levels(ddat$code)[c(3,9:11)] <- "control"
+
+BDSC_codes <- fread("../../misc/BDSC_geneCodes.csv", header = T)
+
+for ( i in 1:nrow(BDSC_codes[,2])) {
+  
+  ddat$code <- sub(BDSC_codes[i,2], BDSC_codes[i,1], ddat$code)
+  
+}
+
+ddat$code <- as.factor(ddat$code)
+ddat$code <- relevel(ddat$code, "control")
+
+# make data wide
+ddat$length <- log2(as.numeric(ddat$length))
+
+
+step1 <- melt(ddat, measure.vars = "length", 
+              id.vars = c("gene","rep","temp","sex","trait","indv","code"))
+
+ddat_wide <- dcast(step1, gene + rep + temp + sex + indv + code ~ trait, 
+                   value.var = "value", mean)
+
+colnames(ddat_wide) <- c("gene","rep","temp","sex","indv","code","ForFemurLength","ForFemurWidth","MidFemurLength","MidFemurWidth","Thorax")
+
+hist(ddat_wide$ForFemurWidth, breaks = 25)
+
+#write.csv(ddat, "../../data/pengal4_clean.csv", quote = F, row.names = F)
+```
+
+
+```{r}
+
+with(ddat_wide, 
+     table(interaction(sex, temp, drop = T)))
+
+with(ddat_wide, 
+     table(interaction(sex, temp, gene, drop = T)))
+
+```
+
+```{r}
+ggplot(ddat, aes(y = length, x = gene, colour = sex)) +
+  facet_wrap(~trait+temp, scales = "free") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  geom_quasirandom(alpha = 0.25)
+
+```
+
+The model accounting for all trait variances
+```{r}
+ddat$new_label <- with(ddat, interaction(gene, rep, temp, sex, indv, drop = TRUE))
+nlevels(ddat$new_label)
+
+mod1_multivariate <- glmmTMB(length ~ trait:(sex *temp*code) - 1 + (1|code:gene) + (0 + trait| new_label), 
+                      dispformula = ~0 + trait,       
+                    ddat,
+                    control = glmmTMBControl(optCtrl = list(iter.max = 1e4, eval.max = 1e4), optimizer = "nlminb"))
+
+summary(mod1_multivariate)
+
+
+#don't use for contrasts!
+all_model <- emmeans(mod1_multivariate,  pairwise ~ trait+temp+code+sex)
+
+# not this either, this is set up
+#all_traits_extract  <- pairs(emmeans(mod1_multivariate, 
+#             specs = ~ sex | temp + code), 
+#             simple = "sex", by = "trait")
+
+
+
+## This is the interaction contrasts we care about!
+all_traits_contrasts <- contrast(all_model[[1]],
+                                 interaction = c(code = "trt.vs.ctrl1", sex = "pairwise"),
+                                 by = c("trait","temp"))
+
+#plot(all_traits_contrasts)
+
+plotting_contrast <- as.data.table(summary(confint(all_traits_contrasts)))
+
+
+
+plot_with_sexContrast <- ggplot(plotting_contrast, aes(x = estimate, y = code_trt.vs.ctrl1, colour = temp)) +
+  theme_bw() +
+  facet_grid( ~ trait) +
+  scale_colour_manual(values = c("darkgrey","black")) +
+  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.25) +
+  xlab(expression(paste(Delta,"Log"[2]* "Trait length "*mu*"m"))) +
+  ylab(NULL) +
+  geom_vline(xintercept = 0, linetype = 3) +
+  scale_y_discrete(label = 
+c(expression(paste(italic("bab1"))), expression(paste(italic("CG13285"))),
+expression(paste(italic("CG30457"))),
+expression(paste(italic("dysf"))),
+expression(paste(italic("grn"))),
+expression(paste(italic("otp"))),
+expression(paste(italic("sox15")))))
+
+
+
+all_model_sex <- emmeans(mod1_multivariate,  pairwise ~ code|trait+temp+sex)
+
+all_traits_contrasts_sexes <- contrast(all_model_sex[[1]],
+                                 interaction = c(code = "trt.vs.ctrl1",
+                                 by = c("sex")))
+
+table <- export_table(summary(all_traits_contrasts_sexes), format = "md")
+
+write.table(table, "../../outputs/all_traits_contrasts_sexes", col.names = F,row.names = F, quote = F)
+
+#plot(all_traits_contrasts_sexes)
+
+plotting_contrast_sexes <- as.data.table(summary(confint(all_traits_contrasts_sexes)))
+
+plot_with_sexes <- ggplot(plotting_contrast_sexes, aes(x = estimate, y = code_trt.vs.ctrl1, colour = temp, shape = sex)) +
+  theme_bw() +
+  facet_grid( ~ trait) +
+ scale_colour_manual(values = c("darkgrey","black"), name = "temperature") +
+  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.6, alpha = 0.75) +
+  xlab(expression(paste(Delta,"Log"[2]* "Trait length "*mu*"m"))) +
+  ylab(NULL) +
+  geom_vline(xintercept = 0, linetype = 3) +
+    scale_y_discrete(label = c(expression(paste(italic("bab1"))), expression(paste(italic("CG13285"))),
+expression(paste(italic("CG30457"))),
+expression(paste(italic("dysf"))),
+expression(paste(italic("grn"))),
+expression(paste(italic("otp"))),
+expression(paste(italic("sox15")))))
+
+```
+
+
+There are some changes in Thorax size relative to controls, so I think I want my leg traits relative to thorax
+
+```{r}
+temp_names <- as_labeller(c("25" = "25°C", "28" = "28°C"))
+```
+
+```{r}
+# ForFemurWidth
+
+ddat_wide$Thorax_c <- ddat_wide$Thorax - mean(ddat_wide$Thorax, na.rm = TRUE)
+
+mod1_FFW <- glmmTMB(ForFemurWidth ~ sex * temp*code + Thorax_c + (1|code:gene), 
+                    ddat_wide)
+
+summary(mod1_FFW)
+
+mod1_FFW_emm <- emmeans(mod1_FFW, ~ code | temp + sex )
+
+FFW_plot_contrast <- as.data.table(confint(contrast(mod1_FFW_emm, method = "trt.vs.ctrl1")))
+
+FFW_plot <- ggplot(FFW_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
+  theme_bw() +
+  facet_grid( ~ temp, labeller = temp_names) +
+   scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
+  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+  xlab(expression(paste(Delta," Forefemur width Log"[2]*" "*mu*"m"))) +
+  ylab(NULL) +
+  geom_vline(xintercept = 0, linetype = 3) +
+  theme(text = element_text(size = 5),
+        axis.text.x = element_text()) +
+  theme(text = element_text(size = 12),
+        axis.text.y = element_text()) +
+    scale_y_discrete(label = c(expression(paste(Delta,italic("bab1"))), expression(paste(Delta,italic("CG13285"))),
+expression(paste(Delta,italic("CG30457"))),
+expression(paste(Delta,italic("dysf"))),
+expression(paste(Delta,italic("grn"))),
+expression(paste(Delta,italic("otp"))),
+expression(paste(Delta,italic("sox15")))))
+
+  #theme(legend.position = "none")
+```
+
+
+```{r}
+# ForFemurLength
+mod1_FFL <- glmmTMB(ForFemurLength ~ sex * temp*code + Thorax_c + (1|code:gene), 
+                    ddat_wide)
+
+summary(mod1_FFL)
+
+mod1_FFL_emm <- emmeans(mod1_FFL, ~ code | temp + sex )
+
+FFL_plot_contrast <- as.data.table(confint(contrast(mod1_FFL_emm, method = "trt.vs.ctrl1")))
+
+FFL_plot <- ggplot(FFL_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
+  theme_bw() +
+  facet_grid( ~ temp, labeller = temp_names) +
+   scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
+  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+xlab(expression(paste(Delta," Forefemur length Log"[2]*" "*mu*"m"))) +
+    ylab(NULL) +
+  geom_vline(xintercept = 0, linetype = 3) +
+  theme(text = element_text(size = 5),
+        axis.text.x = element_text()) +
+  theme(text = element_text(size = 12),
+        axis.text.y = element_blank()) +
+    scale_y_discrete(label = c(expression(paste(Delta,italic("bab1"))), expression(paste(Delta,italic("CG13285"))),
+expression(paste(Delta,italic("CG30457"))),
+expression(paste(Delta,italic("dysf"))),
+expression(paste(Delta,italic("grn"))),
+expression(paste(Delta,italic("otp"))),
+expression(paste(Delta,italic("sox15")))))
+
+  #theme(legend.position = "none")
+```
+
+```{r}
+# MidFemurWidth
+mod1_MFW <- glmmTMB(MidFemurWidth ~ sex * temp*code + Thorax_c + (1|code:gene), 
+                    ddat_wide)
+
+summary(mod1_MFW)
+
+mod1_MFW_emm <- emmeans(mod1_MFW, ~ code | temp + sex )
+
+MFW_plot_contrast <- as.data.table(confint(contrast(mod1_MFW_emm, method = "trt.vs.ctrl1")))
+
+MFW_plot <- ggplot(MFW_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
+  theme_bw() +
+  facet_grid( ~ temp, labeller = temp_names) +
+   scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
+  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+xlab(expression(paste(Delta," Midfemur width Log"[2]*" "*mu*"m"))) +
+    ylab(NULL) +
+  geom_vline(xintercept = 0, linetype = 3) +
+  theme(text = element_text(size = 5),
+        axis.text.x = element_text()) +
+  theme(text = element_text(size = 12),
+        axis.text.y = element_text()) +
+    scale_y_discrete(label = c(expression(paste(Delta,italic("bab1"))), expression(paste(Delta,italic("CG13285"))),
+expression(paste(Delta,italic("CG30457"))),
+expression(paste(Delta,italic("dysf"))),
+expression(paste(Delta,italic("grn"))),
+expression(paste(Delta,italic("otp"))),
+expression(paste(Delta,italic("sox15")))))
+
+  #theme(legend.position = "none")
+```
+
+```{r}
+# MidFemurLength
+mod1_MFL <- glmmTMB(MidFemurLength ~ sex * temp*code + Thorax_c + (1|code:gene), 
+                    ddat_wide)
+
+summary(mod1_MFL)
+
+mod1_MFL_emm <- emmeans(mod1_MFL, ~ code | temp + sex )
+
+MFL_plot_contrast <- as.data.table(confint(contrast(mod1_MFL_emm, method = "trt.vs.ctrl1")))
+
+MFL_plot <- ggplot(MFL_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
+  theme_bw() +
+  facet_grid( ~ temp, labeller = temp_names) +
+     scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
+  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+xlab(expression(paste(Delta," Midfemur length Log"[2]*" "*mu*"m"))) +
+    ylab(NULL) +
+  geom_vline(xintercept = 0, linetype = 3) +
+  theme(text = element_text(size = 5),
+        axis.text.x = element_text()) +
+  theme(text = element_text(size = 12),
+        axis.text.y = element_blank()) +
+    scale_y_discrete(label = c(expression(paste(Delta,italic("bab1"))), expression(paste(Delta,italic("CG13285"))),
+expression(paste(Delta,italic("CG30457"))),
+expression(paste(Delta,italic("dysf"))),
+expression(paste(Delta,italic("grn"))),
+expression(paste(Delta,italic("otp"))),
+expression(paste(Delta,italic("sox15")))))
+
+
+  #theme(legend.position = "none")
+```
+
+```{r}
+
+(FFW_plot+FFL_plot)+plot_layout(guides = "collect")
+
+
+```
+
+
+
