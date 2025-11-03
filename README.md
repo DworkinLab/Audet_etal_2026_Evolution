@@ -2,28 +2,26 @@
 
 Beginning with the RNAseq data in a folder called 'RNA', and the reference genomes for carrolli, prolongata, and melanogaster in a folder called 'genome' and sub-directories named after each species.
 
-## Trimming
-I have 226 R1 and 226 R2 files
+## 1. Trimming
+I have 226 R1 and 226 R2 files. First I run fastqc pre-trim - things look fine, adapters found.
 
-first I run fastqc pre-trim - things look fine, adapters found
+I trim with `bbduk.sh`.
 
-next I trim with 
+A second pass of fastqc also looks good. 
 
-'bbduk.sh'
+## 2. merging files
 
-second pass of fastqc also looks good. 
+Next I split all reads from the first run in to their own directory called run1 and the second run in to a directory called run2, while removing the beginning of the name added by the sequencing centre. I then merge these in to a single file using: `merge.sh`
 
-Next I split all reads from the first run in to their own directory called run1 and the second run in to a directory called run 2, while removing the beginning of the name added by Genome Quebec. I then merge these in to a single file using:
+## 3. Blasting to make sure things look good
 
-'merge.sh'
+Before anything, I did a quick check by blasting some sequences from each fastq using the online blast tool. I ientified two samples that appeared to be blasting to incorrect species (a melanogaster to a carrolli and the reverse), so I check all samples to make sure they blast best to the species which they are labelled as.
 
-Next I need to find samples labelled the wrong species that I identified when blasting random sequences from the samples to look for possible issues. To do this I will blast every sample to the three species genomes.
+`make_blast_db.sh`
 
-'make_blast_db.sh'
+`make_fasta_subset.sh`
 
-'make_fasta_subset.sh'
-
-'blastin.sh'
+`blastin.sh`
 
 I can go through the outputted 'counts' file to identify samples that are blasting to the wrong species.
 
