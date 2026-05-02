@@ -1,7 +1,7 @@
 ---
 title: "PenGAL4 cross"
-author: "Tyler Audet"
-date: "2025-03-20"
+author: "Tyler Audet and Ian Dworkin"
+date: "`r format(Sys.time(),'%d %b %Y')`"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -10,6 +10,8 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
+This is the script for the function pendulin GAL4 cross analyses for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script reads in our phenotypic measurements `pengal4_data.csv` and outpts figure 7 and supplemental figure S10.
 
 ```{r}
 library(ggplot2)
@@ -117,8 +119,10 @@ mod1_multivariate <- glmmTMB(length ~ trait:(sex *temp*code) - 1 + (1|code:gene)
                     control = glmmTMBControl(optCtrl = list(iter.max = 1e4, eval.max = 1e4), optimizer = "nlminb"))
 
 summary(mod1_multivariate)
+```
 
 
+```{r}
 #don't use for contrasts!
 all_model <- emmeans(mod1_multivariate,  pairwise ~ trait+temp+code+sex)
 
@@ -126,14 +130,18 @@ all_model <- emmeans(mod1_multivariate,  pairwise ~ trait+temp+code+sex)
 #all_traits_extract  <- pairs(emmeans(mod1_multivariate, 
 #             specs = ~ sex | temp + code), 
 #             simple = "sex", by = "trait")
+```
 
 
-
+```{r}
 ## This is the interaction contrasts we care about!
 all_traits_contrasts <- contrast(all_model[[1]],
                                  interaction = c(code = "trt.vs.ctrl1", sex = "pairwise"),
                                  by = c("trait","temp"))
+```
 
+
+```{r}
 #plot(all_traits_contrasts)
 
 plotting_contrast <- as.data.table(summary(confint(all_traits_contrasts)))
@@ -144,7 +152,7 @@ plot_with_sexContrast <- ggplot(plotting_contrast, aes(x = estimate, y = code_tr
   theme_bw() +
   facet_grid( ~ trait) +
   scale_colour_manual(values = c("darkgrey","black")) +
-  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.25) +
+  geom_pointrange(aes(xmin = asymp.LCL, xmax = asymp.UCL), position = position_dodge(width=0.5), size = 0.25) +
   xlab(expression(paste(Delta,"Log"[2]* "Trait length "*mu*"m"))) +
   ylab(NULL) +
   geom_vline(xintercept = 0, linetype = 3) +
@@ -155,9 +163,10 @@ expression(paste(italic("dysf"))),
 expression(paste(italic("grn"))),
 expression(paste(italic("otp"))),
 expression(paste(italic("sox15")))))
+```
 
 
-
+```{r}
 all_model_sex <- emmeans(mod1_multivariate,  pairwise ~ code|trait+temp+sex)
 
 all_traits_contrasts_sexes <- contrast(all_model_sex[[1]],
@@ -167,7 +176,10 @@ all_traits_contrasts_sexes <- contrast(all_model_sex[[1]],
 table <- export_table(summary(all_traits_contrasts_sexes), format = "md")
 
 write.table(table, "../../outputs/all_traits_contrasts_sexes", col.names = F,row.names = F, quote = F)
+```
 
+
+```{r}
 #plot(all_traits_contrasts_sexes)
 
 plotting_contrast_sexes <- as.data.table(summary(confint(all_traits_contrasts_sexes)))
@@ -176,7 +188,7 @@ plot_with_sexes <- ggplot(plotting_contrast_sexes, aes(x = estimate, y = code_tr
   theme_bw() +
   facet_grid( ~ trait) +
  scale_colour_manual(values = c("darkgrey","black"), name = "temperature") +
-  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.6, alpha = 0.75) +
+  geom_pointrange(aes(xmin = asymp.LCL, xmax = asymp.UCL), position = position_dodge(width=0.5), size = 0.6, alpha = 0.75) +
   xlab(expression(paste(Delta,"Log"[2]* "Trait length "*mu*"m"))) +
   ylab(NULL) +
   geom_vline(xintercept = 0, linetype = 3) +
@@ -205,17 +217,23 @@ mod1_FFW <- glmmTMB(ForFemurWidth ~ sex * temp*code + Thorax_c + (1|code:gene),
                     ddat_wide)
 
 summary(mod1_FFW)
+```
 
+
+```{r}
 mod1_FFW_emm <- emmeans(mod1_FFW, ~ code | temp + sex )
 
 FFW_plot_contrast <- as.data.table(confint(contrast(mod1_FFW_emm, method = "trt.vs.ctrl1")))
+```
 
+
+```{r}
 FFW_plot <- ggplot(FFW_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
   theme_bw() +
   facet_grid( ~ temp, labeller = temp_names) +
    scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
-  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
-  xlab(expression(paste(Delta," Forefemur width Log"[2]*" "*mu*"m"))) +
+  geom_pointrange(aes(xmin = asymp.LCL, xmax = asymp.UCL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+  xlab(expression(paste(Delta,"Forefemur width Log"[2]*" "*mu*"m"))) +
   ylab(NULL) +
   geom_vline(xintercept = 0, linetype = 3) +
   theme(text = element_text(size = 5),
@@ -239,17 +257,23 @@ mod1_FFL <- glmmTMB(ForFemurLength ~ sex * temp*code + Thorax_c + (1|code:gene),
                     ddat_wide)
 
 summary(mod1_FFL)
+```
 
+
+```{r}
 mod1_FFL_emm <- emmeans(mod1_FFL, ~ code | temp + sex )
 
 FFL_plot_contrast <- as.data.table(confint(contrast(mod1_FFL_emm, method = "trt.vs.ctrl1")))
+```
 
+
+```{r}
 FFL_plot <- ggplot(FFL_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
   theme_bw() +
   facet_grid( ~ temp, labeller = temp_names) +
    scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
-  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
-xlab(expression(paste(Delta," Forefemur length Log"[2]*" "*mu*"m"))) +
+  geom_pointrange(aes(xmin = asymp.LCL, xmax = asymp.UCL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+xlab(expression(paste(Delta,"Forefemur length Log"[2]*" "*mu*"m"))) +
     ylab(NULL) +
   geom_vline(xintercept = 0, linetype = 3) +
   theme(text = element_text(size = 5),
@@ -272,17 +296,23 @@ mod1_MFW <- glmmTMB(MidFemurWidth ~ sex * temp*code + Thorax_c + (1|code:gene),
                     ddat_wide)
 
 summary(mod1_MFW)
+```
 
+
+```{r}
 mod1_MFW_emm <- emmeans(mod1_MFW, ~ code | temp + sex )
 
 MFW_plot_contrast <- as.data.table(confint(contrast(mod1_MFW_emm, method = "trt.vs.ctrl1")))
+```
 
+
+```{r}
 MFW_plot <- ggplot(MFW_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
   theme_bw() +
   facet_grid( ~ temp, labeller = temp_names) +
    scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
-  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
-xlab(expression(paste(Delta," Midfemur width Log"[2]*" "*mu*"m"))) +
+  geom_pointrange(aes(xmin = asymp.LCL, xmax = asymp.UCL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+xlab(expression(paste(Delta,"Midfemur width Log"[2]*" "*mu*"m"))) +
     ylab(NULL) +
   geom_vline(xintercept = 0, linetype = 3) +
   theme(text = element_text(size = 5),
@@ -305,17 +335,23 @@ mod1_MFL <- glmmTMB(MidFemurLength ~ sex * temp*code + Thorax_c + (1|code:gene),
                     ddat_wide)
 
 summary(mod1_MFL)
+```
 
+
+```{r}
 mod1_MFL_emm <- emmeans(mod1_MFL, ~ code | temp + sex )
 
 MFL_plot_contrast <- as.data.table(confint(contrast(mod1_MFL_emm, method = "trt.vs.ctrl1")))
+```
 
+
+```{r}
 MFL_plot <- ggplot(MFL_plot_contrast, aes(x = estimate, y = contrast, colour = sex)) +
   theme_bw() +
   facet_grid( ~ temp, labeller = temp_names) +
      scale_colour_manual(values = c("#E66100","#5D3A9B"), name = "Sex", label = c("Female","Male")) +
-  geom_pointrange(aes(xmin = lower.CL, xmax = upper.CL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
-xlab(expression(paste(Delta," Midfemur length Log"[2]*" "*mu*"m"))) +
+  geom_pointrange(aes(xmin = asymp.LCL, xmax = asymp.UCL), position = position_dodge(width=0.5), size = 0.5, alpha = 0.75, shape = 17) +
+xlab(expression(paste(Delta,"Midfemur length Log"[2]*" "*mu*"m"))) +
     ylab(NULL) +
   geom_vline(xintercept = 0, linetype = 3) +
   theme(text = element_text(size = 5),
@@ -334,11 +370,11 @@ expression(paste(Delta,italic("sox15")))))
 ```
 
 ```{r}
-
-(FFW_plot+FFL_plot)+plot_layout(guides = "collect")
-
-
+(FFW_plot+FFL_plot) + plot_layout(guides = "collect")
 ```
 
+```{r}
+sessionInfo()
+```
 
 

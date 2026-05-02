@@ -11,6 +11,8 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+This is the script for the PCA analyses for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script reads in raw count data generated from `STAR_[species].sh` and gemerates Figures 2 and 3, as well as supplemental figure S6.
+
 Load packages and counts
 ```{r}
 

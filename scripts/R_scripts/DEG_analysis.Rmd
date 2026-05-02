@@ -1,7 +1,7 @@
 ---
 title: "DEG_analysis"
 author: "Tyler Audet"
-date: "2024-11-14"
+date: "`r Sys.Date()`"
 output: html_document
 editor_options: 
   chunk_output_type: console
@@ -11,6 +11,8 @@ editor_options:
 knitr::opts_chunk$set(echo = TRUE)
 options(digits = 3)
 ```
+
+This is the script for all differential gene expression analyses for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This. script reads in the modelled emmeans estimates from `Model.R` which it uses to generate shrunken estimates and outputs these estimates as `[species]_norms` which are used in this and other scripts as our final differential gene expression estimates. This script generates Figures 4 and 5, as well as supplemental figures S2, S3, S7, S8, S9.
 
 ```{r}
 library(tidyverse)
@@ -125,21 +127,27 @@ mf_dc$LCL_log2 <- log2(exp(mf_dc$LCL))
 # How many genes do we have values for and how many are male or female biased
 length(unique(dp$gene)) # 10935 gff #10933 gffread #10952 agat
 length(unique(dp$gene[dp$LCL_log2 > 0])) # 2845 MB
-length(unique(dp$gene[dp$LCL_log2 > 0 & dp$leg == "for"])) # 2248
+length(unique(dp$gene[dp$LCL_log2 > 1 & dp$leg == "for"])) #73
+length(unique(dp$gene[dp$LCL_log2 > 1])) # 173
 length(unique(dp$gene[dp$UCL_log2 < 0])) # 2820 FB
-length(unique(dp$gene[dp$UCL_log2 < 0 & dp$leg == "for"])) # 1920
+length(unique(dp$gene[dp$UCL_log2 < -1 & dp$leg == "for"])) # 110
+length(unique(dp$gene[dp$UCL_log2 < -1])) # 175
 
 length(unique(dm$gene)) # 10768
 length(unique(dm$gene[dm$LCL_log2 > 0])) # 1412 MB
-length(unique(dm$gene[dm$LCL_log2 > 0 & dm$leg == "for"])) # 1123
+length(unique(dm$gene[dm$LCL_log2 > 1 & dm$leg == "for"])) # 24
+length(unique(dm$gene[dm$LCL_log2 > 1])) # 39
 length(unique(dm$gene[dm$UCL_log2 < 0])) # 1559 FB
-length(unique(dm$gene[dm$UCL_log2 < 0 & dm$leg == "for"])) # 1189
+length(unique(dm$gene[dm$UCL_log2 < -1 & dm$leg == "for"])) # 1189
+length(unique(dm$gene[dm$UCL_log2 < -1])) #21
 
 length(unique(dc$gene)) # 6177 gff #10077 gffread gtf
 length(unique(dc$gene[dc$LCL_log2 > 0])) # 1745 MB
-length(unique(dc$gene[dc$LCL_log2 > 0 & dc$leg == "for"])) # 1590
+length(unique(dc$gene[dc$LCL_log2 > 1 & dc$leg == "for"])) # 12
+length(unique(dc$gene[dc$LCL_log2 > 1])) #19
 length(unique(dc$gene[dc$UCL_log2 < 0])) # 1062 FB
-length(unique(dc$gene[dc$UCL_log2 < 0 & dc$leg == "for"])) # 930
+length(unique(dc$gene[dc$UCL_log2 < -1 & dc$leg == "for"])) #33
+length(unique(dc$gene[dc$UCL_log2 < -1])) #35
 
 #doing the same thing for just genes that doubled their expression
 
@@ -156,7 +164,7 @@ dp_interestingGenes <- dp_no_dc[-which(dp_no_dc$gene %in% dm_dbl$gene)]
 dp_interestingGenes_for <- dp_interestingGenes[leg == "for"]
 dp_interestingGenes_mid <- dp_interestingGenes[leg == "mid"]
 dp_interestingGenes <- dp_interestingGenes_for[-which(dp_interestingGenes_for$gene %in% dp_interestingGenes_mid$gene)]
-write.csv(dp_interestingGenes,file = "../outputs/log2DiffExp_prolongata_genes.csv",quote = F,row.names = F)
+#write.csv(dp_interestingGenes,file = "../outputs/log2DiffExp_prolongata_genes.csv",quote = F,row.names = F)
 
 dp_interestingGenes_for$gene[which(dp_interestingGenes_for$gene %in% dp_interestingGenes_mid$gene)]
 
@@ -171,7 +179,7 @@ female_biased_dp_x2 <- dp_dbl[dp_dbl$UCL_log2 < -1]
 length(unique(female_biased_dp_x2$gene)) # 380 female biased # # no outliers = 381
 female_biased_dp_x2_for <- female_biased_dp_x2[leg == "for"]
 female_biased_dp_x2_mid <- female_biased_dp_x2[leg == "mid"]
-#length(female_biased_dp_x2_for$gene[-which(female_biased_dp_x2_for$gene %in% female_biased_dp_x2_mid$gene)])
+length(female_biased_dp_x2_for$gene[-which(female_biased_dp_x2_for$gene %in% female_biased_dp_x2_mid$gene)])
 
 male_biased_dc_x2 <- dc_dbl[dc_dbl$LCL_log2 > 1]
 length(unique(male_biased_dc_x2$gene)) # 173
@@ -202,11 +210,11 @@ length(female_biased_dm_x2_for$gene[-which(female_biased_dm_x2_for$gene %in% fem
 
 genes_of_interest_male <- male_biased_dp_x2_for$gene[-which(male_biased_dp_x2_for$gene %in% male_biased_dp_x2_mid$gene)]
 
-write.table(genes_of_interest_male, "../../outputs/genes_of_interest_male", quote = F, col.names = F, row.names = F)
+#write.table(genes_of_interest_male, "../../outputs/genes_of_interest_male", quote = F, col.names = F, row.names = F)
 
 genes_of_interest_female <- female_biased_dp_x2_for$gene
 
-write.table(genes_of_interest_female, "../../outputs/genes_of_interest_female", quote = F, col.names = F, row.names = F)
+#write.table(genes_of_interest_female, "../../outputs/genes_of_interest_female", quote = F, col.names = F, row.names = F)
 
 #
 ```
@@ -217,35 +225,35 @@ I want to find the magnitude of expression for each sex in each leg, stage, and 
 
 # first I need all biased genes broken down into each sex, stage, and leg
 
-dp_mb_for_early <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "for" & dp$stage == "early"]
-dp_mb_mid_early <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "mid" & dp$stage == "early"]
-dp_mb_for_late <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "for" & dp$stage == "late"]
-dp_mb_mid_late <- dp$estimate_log2[dp$LCL_log2 > 1 & dp$leg == "mid" & dp$stage == "late"]
+dp_mb_for_early <- dp$estimate_log2[dp$LCL_log2 > 0 & dp$leg == "for" & dp$stage == "early"]
+dp_mb_mid_early <- dp$estimate_log2[dp$LCL_log2 > 0 & dp$leg == "mid" & dp$stage == "early"]
+dp_mb_for_late <- dp$estimate_log2[dp$LCL_log2 > 0 & dp$leg == "for" & dp$stage == "late"]
+dp_mb_mid_late <- dp$estimate_log2[dp$LCL_log2 > 0 & dp$leg == "mid" & dp$stage == "late"]
 
-dp_fb_for_early <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "for" & dp$stage == "early"]
-dp_fb_mid_early <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "mid" & dp$stage == "early"]
-dp_fb_for_late <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "for" & dp$stage == "late"]
-dp_fb_mid_late <- dp$estimate_log2[dp$UCL_log2 < -1 & dp$leg == "mid" & dp$stage == "late"]
+dp_fb_for_early <- dp$estimate_log2[dp$UCL_log2 < 0 & dp$leg == "for" & dp$stage == "early"]
+dp_fb_mid_early <- dp$estimate_log2[dp$UCL_log2 < 0 & dp$leg == "mid" & dp$stage == "early"]
+dp_fb_for_late <- dp$estimate_log2[dp$UCL_log2 < 0 & dp$leg == "for" & dp$stage == "late"]
+dp_fb_mid_late <- dp$estimate_log2[dp$UCL_log2 < 0 & dp$leg == "mid" & dp$stage == "late"]
 
-dc_mb_for_early <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "for" & dc$stage == "early"]
-dc_mb_mid_early <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "mid" & dc$stage == "early"]
-dc_mb_for_late <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "for" & dc$stage == "late"]
-dc_mb_mid_late <- dc$estimate_log2[dc$LCL_log2 > 1 & dc$leg == "mid" & dc$stage == "late"]
+dc_mb_for_early <- dc$estimate_log2[dc$LCL_log2 > 0 & dc$leg == "for" & dc$stage == "early"]
+dc_mb_mid_early <- dc$estimate_log2[dc$LCL_log2 > 0 & dc$leg == "mid" & dc$stage == "early"]
+dc_mb_for_late <- dc$estimate_log2[dc$LCL_log2 > 0 & dc$leg == "for" & dc$stage == "late"]
+dc_mb_mid_late <- dc$estimate_log2[dc$LCL_log2 > 0 & dc$leg == "mid" & dc$stage == "late"]
 
-dc_fb_for_early <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "for" & dc$stage == "early"]
-dc_fb_mid_early <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "mid" & dc$stage == "early"]
-dc_fb_for_late <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "for" & dc$stage == "late"]
-dc_fb_mid_late <- dc$estimate_log2[dc$UCL_log2 < -1 & dc$leg == "mid" & dc$stage == "late"]
+dc_fb_for_early <- dc$estimate_log2[dc$UCL_log2 < 0 & dc$leg == "for" & dc$stage == "early"]
+dc_fb_mid_early <- dc$estimate_log2[dc$UCL_log2 < 0 & dc$leg == "mid" & dc$stage == "early"]
+dc_fb_for_late <- dc$estimate_log2[dc$UCL_log2 < 0 & dc$leg == "for" & dc$stage == "late"]
+dc_fb_mid_late <- dc$estimate_log2[dc$UCL_log2 < 0 & dc$leg == "mid" & dc$stage == "late"]
 
-dm_mb_for_early <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "for" & dm$stage == "early"]
-dm_mb_mid_early <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "mid" & dm$stage == "early"]
-dm_mb_for_late <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "for" & dm$stage == "late"]
-dm_mb_mid_late <- dm$estimate_log2[dm$LCL_log2 > 1 & dm$leg == "mid" & dm$stage == "late"]
+dm_mb_for_early <- dm$estimate_log2[dm$LCL_log2 > 0 & dm$leg == "for" & dm$stage == "early"]
+dm_mb_mid_early <- dm$estimate_log2[dm$LCL_log2 > 0 & dm$leg == "mid" & dm$stage == "early"]
+dm_mb_for_late <- dm$estimate_log2[dm$LCL_log2 > 0 & dm$leg == "for" & dm$stage == "late"]
+dm_mb_mid_late <- dm$estimate_log2[dm$LCL_log2 > 0 & dm$leg == "mid" & dm$stage == "late"]
 
-dm_fb_for_early <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "for" & dm$stage == "early"]
-dm_fb_mid_early <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "mid" & dm$stage == "early"]
-dm_fb_for_late <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "for" & dm$stage == "late"]
-dm_fb_mid_late <- dm$estimate_log2[dm$UCL_log2 < -1 & dm$leg == "mid" & dm$stage == "late"]
+dm_fb_for_early <- dm$estimate_log2[dm$UCL_log2 < 0 & dm$leg == "for" & dm$stage == "early"]
+dm_fb_mid_early <- dm$estimate_log2[dm$UCL_log2 < 0 & dm$leg == "mid" & dm$stage == "early"]
+dm_fb_for_late <- dm$estimate_log2[dm$UCL_log2 < 0 & dm$leg == "for" & dm$stage == "late"]
+dm_fb_mid_late <- dm$estimate_log2[dm$UCL_log2 < 0 & dm$leg == "mid" & dm$stage == "late"]
 
 templist <- list(dp_mb_for_early,dp_mb_mid_early,dp_mb_for_late,dp_mb_mid_late,dp_fb_for_early,dp_fb_mid_early,dp_fb_for_late,dp_fb_mid_late,dc_mb_for_early,dc_mb_mid_early,dc_mb_for_late,dc_mb_mid_late,dc_fb_for_early,dc_fb_mid_early,dc_fb_for_late,dc_fb_mid_late,dm_mb_for_early,dm_mb_mid_early,dm_mb_for_late,dm_mb_mid_late,dm_fb_for_early,dm_fb_mid_early,dm_fb_for_late,dm_fb_mid_late)
 
@@ -325,25 +333,41 @@ shape_vector <- c("car.early" = 15,
                   "pro.late" = 1)
 
 
-mag_plot <- ggplot(mag_mat_final, aes(x = SSD_estimates, y = magnitude, colour = interaction(leg,sex), shape = interaction(species, stage, drop = TRUE) )) +
-  geom_pointrange(aes(ymin = LCL, ymax = UCL), position = position_dodge2(width = 0.075), size = 0.75, alpha = 0.7) +
+mag_plot <- ggplot(mag_mat_final, aes(x = SSD_estimates, y = magnitude, colour = interaction(leg,sex), shape = species)) +
+  geom_pointrange(aes(ymin = LCL, ymax = UCL), position = position_dodge2(width = 0.075), size = 0.5, alpha = 0.7) +
   ylab("Magnitude of SBGE") +
   xlab("Femur SSD (M-F)") +
   scale_colour_manual(values = colour_vector, labels = c("Female foreleg","Female midleg","Male foreleg","Male midleg"))  +
-  scale_shape_manual(values = shape_vector, labels = c(expression(paste(italic("D. carrolli"), " early")), expression(paste(italic("D. melanogaster"), " early")), expression(paste(italic("D. prolongata"), " early")),
-expression(paste(italic("D. carrolli"), " late")), expression(paste(italic("D. melanogaster"), " late")), expression(paste(italic("D. prolongata"), " late"))), name = "Species and stage") +
-  theme_classic() +
-  labs(shape="Species and stage", colour="Sex and leg")
+  scale_shape_manual(values = c("car" = 15,
+                  "mel" = 17,
+                  "pro" = 16),
+                     labels = c(expression(italic("D. carrolli")),
+                                expression(italic("D. melanogaster")),
+                                expression(italic("D. prolongata")),
+                                name = "Species")) +
+  theme_bw() +
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank()) +
+  facet_grid(rows = vars(stage)) +
+  labs(shape="Species", colour="Sex and leg")
 
-SBG_plot <- ggplot(mag_mat_final, aes(x = SSD_estimates, y = as.numeric(SBGs), colour = interaction(leg,sex), shape = interaction(species, stage, drop = TRUE) )) +
-  geom_pointrange(aes(ymin = LCL, ymax = UCL), position = position_dodge2(width = 0.075), size = 0.75, alpha = 0.7) +
+SBG_plot <- ggplot(mag_mat_final, aes(x = SSD_estimates, y = as.numeric(SBGs), colour = interaction(leg,sex), shape =species)) +
+  geom_pointrange(aes(ymin = LCL, ymax = UCL), position = position_dodge2(width = 0.075), size = 0.5, alpha = 0.7) +
   ylab("Number of SBGs") +
   xlab("Femur SSD (M-F)") +
   scale_colour_manual(values = colour_vector, labels = c("Female foreleg","Female midleg","Male foreleg","Male midleg"))  +
-  scale_shape_manual(values = shape_vector, labels = c(expression(paste(italic("D. carrolli"), " early")), expression(paste(italic("D. melanogaster"), " early")), expression(paste(italic("D. prolongata"), " early")),
-expression(paste(italic("D. carrolli"), " late")), expression(paste(italic("D. melanogaster"), " late")), expression(paste(italic("D. prolongata"), " late"))), name = "Species and stage") +
-  theme_classic() +
-  labs(shape="Species and stage", colour="Sex and leg")
+  scale_shape_manual(values = c("car" = 15,
+                  "mel" = 17,
+                  "pro" = 16),
+                     labels = c(expression(italic("D. carrolli")),
+                                expression(italic("D. melanogaster")),
+                                expression(italic("D. prolongata")),
+                                name = "Species")) +
+  theme_bw() +
+    theme(panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank()) +
+  facet_grid(rows = vars(stage)) +
+  labs(shape="Species", colour="Sex and leg")
 
 SBG_plot+mag_plot + plot_layout(guides = 'collect')
 
@@ -384,6 +408,7 @@ current_gene <- plotting_data[plotting_data$gene == this_gene,]
 geneplot <- ggplot(current_gene, aes(x = leg, y = estimate)) +
   geom_pointrange(aes(color = species,ymin = LCL, ymax = UCL), size = 0.2, position = position_dodge(width = 0.5)) +
   labs(title = this_gene) +
+  ylab("Gene Expression estimate \n Male - Female") +
   facet_wrap(~stage) +
   stat_summary(aes(group = species, colour = species), fun = mean, geom = "path",position = position_dodge(width = 0.5))
 
@@ -532,6 +557,387 @@ dysf+
 
 
 ```
+
+Below I plot a subset of genes that are associated with chemosensory bristle development to ensure that D. prolongata is not standing out due to the difference in chemosensory bristle number
+```{r}
+
+figure_genes <- c("Poxn","N","Dl","ase","dpn","scrt","ct","ac","sc","lncRNA:CR33938")
+
+dp_complete <- dp[which(dp$gene %in% figure_genes)]
+dp_complete$species <- "prolongata"
+dm_complete <- dm[which(dm$gene %in% figure_genes)]
+dm_complete$species <- "melanogaster"
+dc_complete <- dc[which(dc$gene %in% figure_genes)]
+dc_complete$species <- "carrolli"
+
+allRows <- rbind(dp_complete,dm_complete,dc_complete)
+
+step1 <- melt(allRows, id.vars = c("gene","leg","stage","species"), measure.vars = c("estimate_log2","LCL_log2","UCL_log2","p"))
+
+plotting_data <- dcast(step1, gene + stage + species + leg ~ variable, mean)
+
+colnames(plotting_data) <- c("gene","stage","species","leg","estimate","LCL","UCL","p")
+
+plotting_data$species <- gsub('^', 'D. ', plotting_data$species)
+
+#plotting_data$species <- expression(italic(plotting_data$species))
+
+plotting_data$leg <- sub("for","foreleg",plotting_data$leg)
+plotting_data$leg <- sub("mid","midleg",plotting_data$leg)
+
+ac <- filter(plotting_data, gene == "ac") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("achaete"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+sc <- filter(plotting_data, gene == "sc") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("scute"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+Poxn <- filter(plotting_data, gene == "Poxn") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("pox neuro"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+N <- filter(plotting_data, gene == "N") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("Notch"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+Dl <- filter(plotting_data, gene == "Dl") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("Delta"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.location = NULL) +
+  ylab(NULL) +
+  xlab(NULL)
+
+ase <- filter(plotting_data, gene == "ase") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("asense"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+dpn <- filter(plotting_data, gene == "dpn") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("deadpan"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  xlab(NULL) +
+  ylab("Gene expression estimate\n(Male-Female)")
+
+scrt <- filter(plotting_data, gene == "scrt") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("scratch"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+ct <- filter(plotting_data, gene == "ct") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("cut"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ylab(NULL) +
+  xlab(NULL)
+
+design <- "ab
+           cd
+           ef
+           gh
+          ij"
+
+sc+ac+Poxn+ase+dpn+scrt+
+  guide_area()+
+  plot_layout(
+    design = design, 
+    guides = "collect"
+  )
+
+lnc <- filter(plotting_data, gene == "lncRNA:CR33938") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("lncRNA:CR33938"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+ theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+```
+
+Below I plot a subset of genes that are associated with leg development to ensure that D. prolongata is not standing out due to the difference in leg cell propprtions for dorsal/proximal/distal cells
+```{r}
+
+figure_genes <- c("bab2","Dll","dac","hth","esg","tsh","ss","crol","ap","B-H1","C15","rn","tal")
+
+dp_complete <- dp[which(dp$gene %in% figure_genes)]
+dp_complete$species <- "prolongata"
+dm_complete <- dm[which(dm$gene %in% figure_genes)]
+dm_complete$species <- "melanogaster"
+dc_complete <- dc[which(dc$gene %in% figure_genes)]
+dc_complete$species <- "carrolli"
+
+allRows <- rbind(dp_complete,dm_complete,dc_complete)
+
+step1 <- melt(allRows, id.vars = c("gene","leg","stage","species"), measure.vars = c("estimate_log2","LCL_log2","UCL_log2","p"))
+
+plotting_data <- dcast(step1, gene + stage + species + leg ~ variable, mean)
+
+colnames(plotting_data) <- c("gene","stage","species","leg","estimate","LCL","UCL","p")
+
+plotting_data$species <- gsub('^', 'D. ', plotting_data$species)
+
+#plotting_data$species <- expression(italic(plotting_data$species))
+
+plotting_data$leg <- sub("for","foreleg",plotting_data$leg)
+plotting_data$leg <- sub("mid","midleg",plotting_data$leg)
+
+bab2 <- filter(plotting_data, gene == "bab2") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("bric-a-brac 2"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  #theme(legend.position = "none") +
+  ylab(NULL) +
+  xlab(NULL)
+
+
+Dll <- filter(plotting_data, gene == "Dll") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("Distalless"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.position = "none") +
+  ylab(NULL) +
+  xlab(NULL)
+
+dac <- filter(plotting_data, gene == "dac") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("dachshund"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.position = "none") +
+  ylab(NULL) +
+  xlab(NULL)
+
+hth <- filter(plotting_data, gene == "hth") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species, ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("homothorax"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.position = "none") +
+  ylab(NULL) +
+  xlab(NULL)
+
+esg <- filter(plotting_data, gene == "esg") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("escargot"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.position = "none") +
+  ylab(NULL) +
+  xlab(NULL)
+
+tsh <- filter(plotting_data, gene == "tsh") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("teashirt"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.position = "none") +
+  ylab(NULL) +
+  xlab(NULL)
+
+ss <- filter(plotting_data, gene == "ss") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("spineless"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.text = element_text(face = "italic", size = 15), legend.title = element_text(size = 15)) +
+  ylab(NULL) +
+  xlab(NULL)
+
+crol <- filter(plotting_data, gene == "crol") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("crooked legs"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.position = "none") +
+  xlab(NULL) +
+  ylab("Gene expression estimate\n(Male-Female)")
+
+ap <- filter(plotting_data, gene == "ap") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("apterous"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  theme(legend.position = "none") +
+  ylab(NULL) +
+  xlab(NULL)
+
+BarH1 <- filter(plotting_data, gene == "B-H1") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("BarH1"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  theme(legend.position = "none") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ylab(NULL) +
+  xlab(NULL)
+
+C15 <- filter(plotting_data, gene == "C15") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("C15"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  theme(legend.position = "none") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ylab(NULL) +
+  xlab(NULL)
+
+rn <- filter(plotting_data, gene == "rn") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("rotund"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  theme(legend.position = "none") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ylab(NULL) +
+  xlab(NULL)
+
+tal <- filter(plotting_data, gene == "tal") %>%
+ggplot(aes(x = leg, y = estimate)) +
+  geom_pointrange(aes(shape = species,ymin = LCL, ymax = UCL), size = 0.4, position = position_dodge(width = 0.5)) +
+  labs(title = expression(italic("tarsal-less"))) +
+  facet_wrap(~stage) +
+  stat_summary(aes(group = species), fun = mean, geom = "path",position = position_dodge(width = 0.5)) +
+  theme_classic() +
+  scale_shape_manual(values = c(15,17,16), name = "Species") +
+  theme(legend.position = "none") +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  ylab(NULL) +
+  xlab(NULL)
+
+design <- "abcd
+           efgh
+           ijkl"
+
+Dll+dac+hth+esg+crol+tsh+ss+ap+BarH1+C15+rn+
+  guide_area()+
+  plot_layout(
+    design = design, 
+    guides = "collect")
+```
+
 
 The below block of code plots reaction norms for the sexes separately to look at expression levels rather than a contrast.
 

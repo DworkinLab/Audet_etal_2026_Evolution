@@ -1,0 +1,218 @@
+---
+title: "Cell_number_supp"
+output: 
+  html_document: 
+    toc: true
+    number_sections: true
+    keep_md: true
+date: "2025-11-12"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(digits = 3)
+```
+
+This is the script for the reanalysis of cell numbers for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script will take cell number and size data from Luecke & Kopp 2019 available via Dryad at [https://datadryad.org/dataset/doi:10.25338/B8303J] and model it to demonstrate that cell number is not a likely confounding factor for our gene expression results. This script outputs supplemental figure S1.
+
+```{r}
+library(ggplot2)
+library(glmmTMB)
+library(emmeans)
+library(data.table)
+library(patchwork)
+library(bbmle)
+```
+
+```{r}
+ddat <- fread("../../data/Luecke_DrosophilaLegSize_Discs_LarvaData.csv")
+```
+
+
+```{r}
+ddat$T1SIZE <- (ddat$T1aSIZE + ddat$T1bSIZE) / 2
+ddat$T2SIZE <- (ddat$T2aSIZE + ddat$T2bSIZE) / 2
+
+ddat$T1DAPI <- (ddat$T1aDAPI + ddat$T1bDAPI) / 2
+ddat$T2DAPI <- (ddat$T2aDAPI + ddat$T2bDAPI) / 2
+```
+
+
+```{r}
+carM <- ddat[which(ddat$species == "kb866" & ddat$sex == "m" & method == "AEL")]
+carF <- ddat[which(ddat$species == "kb866" & ddat$sex == "f" & method == "AEL")]
+proM <- ddat[which(ddat$species == "prol" & ddat$sex == "m" & method == "AEL")]
+proF <- ddat[which(ddat$species == "prol" & ddat$sex == "f" & method == "AEL")]
+```
+
+
+```{r}
+carF$percent.dev <- as.numeric(carF$timepoint)/6.7
+carM$percent.dev <- as.numeric(carM$timepoint)/7
+proF$percent.dev <- as.numeric(proF$timepoint)/7.2
+proM$percent.dev <- as.numeric(proM$timepoint)/8
+```
+
+
+```{r}
+AEL <- rbind(carF,carM,proF,proM)
+```
+
+
+```{r}
+carM.L3 <- ddat[which(ddat$species == "kb866" & ddat$sex == "m" & method == "AL3")]
+carF.L3 <- ddat[which(ddat$species == "kb866" & ddat$sex == "f" & method == "AL3")]
+proM.L3 <- ddat[which(ddat$species == "prol" & ddat$sex == "m" & method == "AL3")]
+proF.L3 <- ddat[which(ddat$species == "prol" & ddat$sex == "f" & method == "AL3")]
+```
+
+
+```{r}
+carF.L3$percent.dev <- (as.numeric(carF.L3$timepoint)+(6.7*24)/2)/(6.7*24)
+carM.L3$percent.dev <- (as.numeric(carM.L3$timepoint)+((7*24)/2))/(7*24)
+proF.L3$percent.dev <- (as.numeric(proF.L3$timepoint)+((7.2*24)/2))/(7.2*24)
+proM.L3$percent.dev <- (as.numeric(proM.L3$timepoint)+((8*24)/2))/(8*24)
+AL3<-rbind(carF.L3,carM.L3,proF.L3,proM.L3)
+
+# late timepoint is 6.7 days AEL -> 0.838% of larval development
+# early timepoint is 6.25 AEL -> 0.781% of larval development
+
+wL3 <- ddat[ddat$timepoint == "wL3"]
+wL3$percent.dev <- as.numeric("1")
+
+wpp <- ddat[ddat$timepoint == "wpp"]
+wpp$percent.dev <- as.numeric("1.025")
+
+all.time <- rbind(AEL,AL3,wL3,wpp)
+
+all.time$species <- sub("kb866", "D. carrolli", all.time$species)
+all.time$species <- sub("prol", "D. prolongata", all.time$species)
+all.time$sex <- sub("m", "Male", all.time$sex)
+all.time$sex <- sub("f", "Female", all.time$sex)
+```
+
+
+```{r}
+disc.size <- ggplot(all.time, aes(x = percent.dev, y = log2(T1SIZE), colour = interaction(sex,species))) +
+  geom_point() +
+  geom_vline(aes(xintercept = (0.781)), colour = "red") +
+  geom_vline(aes(xintercept = (0.838)), colour = "red") +
+  geom_vline(aes(xintercept = (1.2)), colour = "black", linetype = 2) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) +
+  xlab(NULL) +
+  ylab("T1 Larval Disc size, log2") +
+  xlim(c(0.4,1.4)) +
+  theme_classic()
+```
+
+
+```{r}
+disc.number <- ggplot(all.time, aes(x = percent.dev, y = log2(T1DAPI), colour = interaction(sex,species))) +
+  geom_point() +
+  geom_vline(aes(xintercept = (0.781)), colour = "red") +
+  geom_vline(aes(xintercept = (0.838)), colour = "red") +
+  geom_vline(aes(xintercept = (1.2)), colour = "black", linetype = 2) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) +
+  xlab("Percent third instar larval development") +
+  ylab("T1 Larval cell count, log2") +
+  xlim(c(0.4,1.4)) +
+  theme_classic()
+```
+
+
+```{r}
+disc.size / disc.number + 
+  plot_layout(guides = "collect")
+
+```
+
+
+
+```{r}
+ggplot(all.time, aes(x = percent.dev, y = log2(T2SIZE), colour = interaction(sex,species))) +
+  geom_point() +
+  geom_vline(aes(xintercept = (0.781)), colour = "red") +
+  geom_vline(aes(xintercept = (0.838)), colour = "red") +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) +
+  xlab("Percent third instar Larval Development") +
+  ylab("T2 Larval Disc size, log2") +
+  theme_bw()
+```
+
+
+## Gompertz growth model
+
+As an alternative, let's fit an explicit mechanistic growth model. We will only do it for the *D. prolongata* data as we we have sufficient data for it.
+
+```{r}
+Dp_dat <- all.time[all.time$species == "D. prolongata",]
+Dp_dat <- droplevels(Dp_dat)
+
+Dp_dat2 <- subset(Dp_dat, select = c(T1SIZE, percent.dev, sex))
+Dp_dat2 <- na.omit(Dp_dat2)
+```
+
+Check the subset
+```{r}
+ggplot(Dp_dat2, aes(x = percent.dev, y = T1SIZE, colour = sex)) +
+  geom_point() +
+  geom_vline(aes(xintercept = (0.781)), colour = "red") +
+  geom_vline(aes(xintercept = (0.838)), colour = "red") +
+  geom_vline(aes(xintercept = (1.2)), colour = "black", linetype = 2) +
+  geom_smooth(method = "lm", formula = y ~ poly(x, 2)) +
+  xlab(NULL) +
+  ylab("T1 Larval Disc size") +
+  xlim(c(0.4,1.4)) +
+  theme_classic()
+```
+
+
+Gompertz model, getting it working
+
+ For the Gompertz model, here are interpretations of the parameters
+growth Asymptote a 
+developmental rate constant b
+age decay of growth c
+add back in time to initiation of growth t0
+
+```{r}
+size <- log2(Dp_dat2$T1SIZE)
+age <-  (Dp_dat2$percent.dev)
+```
+
+
+
+```{r}
+gompertz.NLL <- function(a1, b1, c1, sigma) {
+	size.gomp <- a1*exp(-b1*exp(-c1*age))
+	-sum(dnorm(size, mean = size.gomp, sd = sigma, log=T))}
+```
+
+```{r}
+min(size)
+max(size)
+min(age)
+sd(size)
+```
+
+```{r}
+gompertz.MLE.1 <- mle2(gompertz.NLL, 
+                       start = list(a1 = 15.86, b1 = 7, c1 = 8.7, sigma = 0.75), 
+    method = "BFGS")
+
+summary(gompertz.MLE.1)
+```
+
+
+
+```{r}
+gompertz.MLE.a <- mle2(log2(T1SIZE) ~ dnorm(a*exp(-b*exp(-c*percent.dev)), sd = sigma), 
+                        start = list(a = 10, b = 5, c = 5, sigma = 0.75), 
+                        parameters = list(a ~ sex,b ~ sex, c ~ sex), method="SANN", 
+                       data = Dp_dat2)
+
+summary(gompertz.MLE.a)
+```
+

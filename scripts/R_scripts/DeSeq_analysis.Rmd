@@ -12,6 +12,8 @@ knitr::opts_chunk$set(echo = TRUE)
 options(digits = 3)
 ```
 
+This is the script used to verify our methods against standard DeSeq methods for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script reads in raw counts generated from the script `STAR_[species].sh` to run the DeSeq analyses as well as our shrunked estimates as the files `[species]_norms` generated from the script `DGE_analysis.Rmd`. It generates the supplemental figures S4 and S5.
+
 ```{r}
 library(DESeq2)
 library(edgeR)
