@@ -4,24 +4,40 @@ Beginning with the RNAseq data in a folder called 'RNA', and the reference genom
 
 Scripts:
 -R_scripts
+
   -DEG_analysis.Rmd: This is the script for all differential gene expression analyses for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This. script reads in the modelled emmeans estimates from `Model.R` which it uses to generate shrunken estimates and outputs these estimates as `[species]_norms` which are used in this and other scripts as our final differential gene expression estimates. This script generates Figures 4 and 5, as well as supplemental figures S2, S3, S7, S8, S9.
+
   -PCA_work.Rmd: This is the script for the PCA analyses for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script reads in raw count data generated from `STAR_[species].sh` and gemerates Figures 2 and 3, as well as supplemental figure S6.
+
   -PenGAL4_cross.Rmd: This is the script for the function pendulin GAL4 cross analyses for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script reads in our phenotypic measurements `pengal4_data.csv` and outpts figure 7 and supplemental figure S10.
+
   -DeSeq_analysis.Rmd: This is the script used to verify our methods against standard DeSeq methods for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script reads in raw counts generated from the script `STAR_[species].sh` to run the DeSeq analyses as well as our shrunked estimates as the files `[species]_norms` generated from the script `DGE_analysis.Rmd`. It generates the supplemental figures S4 and S5.
+
   -Vector_Correlations.Rmd: This is the script for all vector correlation analyses for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. It reads in the data generated from the `DEG_analysis.Rmd` script and generates Figures 8, 9, and 10 as well as supplemental figures S11-S29. It also uses publically available file from Flybase.org `pathway_group_data_fb_2024_04.tsv` available from [https://s3ftp.flybase.org/releases/FB2024_04/precomputed_files/genes/index.html], as well as the publically available mod-encode file for putative grn targets available at [https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM8109144] and converted to gene names, provided here as file `grn_targetGenes.txt`.
+
   -Luecke_cell_data_analysis_ID.Rmd: This is the script for the reanalysis of cell numbers for the paper 'Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament'. This script will take cell number and size data from Luecke & Kopp 2019 available via Dryad at [https://datadryad.org/dataset/doi:10.25338/B8303J] and model it to demonstrate that cell number is not a likely confounding factor for our gene expression results. This script outputs supplemental figure S1.
+
+
 -bash_scripts
+
   -QC_trimming: These scripts are associated with step 1 below and were used to trim adapters, and verify that sequencing was sufficient, adapters were removed, and no issues were present in the original sequencing data prior to mapping.
+
   -merging: These are the scripts associasted with step 2 below and were used to merge two disctinct sequenciong runs due to insufficient coverage from the sequencing centre in the first run.
+
   -blasting_between_spp: These scripts are all the scripts associated with step 3 below and were used to look for contamination and verification that our sequencing was correct.
+
   -mapping: These are the scripts associated with step 4 below and are used for indexing genomes for STAR and mapping/counting for our sequencing. It outputs count data files that are then read in to the scripts `[species]_model.R` to output modelled count estimates.
+
   -modelling: These scripts are associated with step 6 below and use the output from the STAR mapping scripts to model and output emmeans estimates which are then read in to `DGE_analysis.Rmd` for estimate shrinkage and downstream analyses.
 
 data:
 This is data used to generate results and outputs.
--PenGAL4 files are phenotypic data for the PenGAL4 .Rmd
--Count files are raw count data used in DEG analysis .Rmd to generate the ashr corrected files, generated from the STAR mapping shell scripts
--norms files are ashr regularized measurement used for analysis
+
+  -PenGAL4 files are phenotypic data for the PenGAL4 .Rmd
+
+  -Count files are raw count data used in DEG analysis .Rmd to generate the ashr corrected files, generated from the STAR mapping shell scripts
+
+  -norms files are ashr regularized measurement used for analysis
 
 For complete analyses, the output files from star ending with 'ReadsPerGene.out.tab' should be splaced in a folder for each species here, however due to the size of these files they are not included here but generated by running the `star_[species].sh` scripts in `/scripts/bash_scripts/mapping/`.
 
