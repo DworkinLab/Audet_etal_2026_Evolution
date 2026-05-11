@@ -1,4 +1,4 @@
-# shell scripts for mapping and modelling
+# This is the code and some intermediate data files for the paper "Genomic architecture of the developing forelegs of Drosophila prolongata; an exaggerated weapon and ornament" in the journal Evolution
 
 Beginning with the RNAseq data in a folder called 'RNA', and the reference genomes for carrolli, prolongata, and melanogaster in a folder called 'genome' and sub-directories named after each species. Bash scripts contain path structures for all scripts and are formatted for use with slurm schedulers.
 
