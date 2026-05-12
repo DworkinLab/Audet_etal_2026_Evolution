@@ -3,6 +3,7 @@
 If you use this data and or code, please cite the forthcoming paper.
 
 Tyler Audet, Jhoniel Perdigón Ferreira, Abhishek Meena, Mariam Abass, Arteen Torabi-Marashi, John Yeom, Fatima Zaghloul, Nour Zaghloul, Arie Mizrahi, Julia Novikov, Emma Xi, Stefan Lüpold, Ian Dworkin. (2026).Genomic architecture of the developing forelegs of *Drosophila prolongata*; an exaggerated weapon and ornament. Evolution. Accepted
+
 DOI will be provided once available from the journal.
 
 Raw sequence data will be available shortly via NCBI GEO (GSE330706)
