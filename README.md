@@ -6,7 +6,7 @@ Tyler Audet, Jhoniel Perdigón Ferreira, Abhishek Meena, Mariam Abass, Arteen To
 
 Raw sequence data is available via [NCBI GEO](https://www.ncbi.nlm.nih.gov/geo/) via the following accession GSE330706.
 
-Static version of this repositoty, plus additional intermediate data too large for github are available here
+Static version of this repository, plus additional intermediate data too large for github are available here
 10.6084/m9.figshare.32311218
 
 ## Overview
